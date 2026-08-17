@@ -3,9 +3,18 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+const AVAILABLE_MODELS = [
+  "gemini-3-flash-preview",
+  "gemini-3.6-flash",
+  "gemini-3-pro-image-preview",
+];
+
 export async function POST(request: NextRequest) {
   try {
-    const { messages } = await request.json();
+    const { messages, model } = await request.json();
+    const selectedModel = AVAILABLE_MODELS.includes(model)
+      ? model
+      : AVAILABLE_MODELS[0];
 
     const apiKey = process.env.GOOGLE_GENAI_API_KEY;
     if (!apiKey) {
@@ -26,7 +35,7 @@ export async function POST(request: NextRequest) {
     );
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: selectedModel,
       contents,
     });
 

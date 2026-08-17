@@ -14,12 +14,19 @@ interface Conversation {
   messages: Message[];
 }
 
+const AVAILABLE_MODELS = [
+  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)" },
+  { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
+  { id: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image (Preview)" },
+];
+
 export default function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [model, setModel] = useState(AVAILABLE_MODELS[0].id);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentConv = conversations.find((c) => c.id === currentConvId);
@@ -67,6 +74,7 @@ export default function Chat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...messages, userMessage],
+          model,
         }),
       });
 
@@ -186,6 +194,17 @@ export default function Chat() {
                 <Menu size={20} className="text-gray-700" />
               </button>
               <h1 className="text-2xl font-semibold text-gray-900">My Gemini App</h1>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                {AVAILABLE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
