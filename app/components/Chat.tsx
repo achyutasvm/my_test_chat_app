@@ -187,9 +187,11 @@ export default function Chat() {
     await getCompletion(convId, apiMessages);
   };
 
-  const handleFeedback = (idx: number, type: "up" | "down") => {
+  const handleFeedback = async (idx: number, type: "up" | "down") => {
     if (!currentConvId) return;
     const convId = currentConvId;
+    const targetMessage = messages[idx];
+    const newFeedback = targetMessage.feedback === type ? null : type;
 
     setConversations((prev) =>
       prev.map((c) =>
@@ -197,12 +199,29 @@ export default function Chat() {
           ? {
               ...c,
               messages: c.messages.map((m, i) =>
-                i === idx ? { ...m, feedback: m.feedback === type ? null : type } : m
+                i === idx ? { ...m, feedback: newFeedback } : m
               ),
             }
           : c
       )
     );
+
+    if (!newFeedback) return;
+
+    const promptMessage = messages[idx - 1];
+    try {
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: promptMessage?.content ?? "",
+          response: targetMessage.content,
+          feedback: newFeedback,
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to save feedback:", error);
+    }
   };
 
   const suggestedPrompts = [
