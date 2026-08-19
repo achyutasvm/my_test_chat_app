@@ -1,11 +1,24 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Menu, Plus, MessageCircle, Settings, HelpCircle } from "lucide-react";
+import {
+  Menu,
+  Plus,
+  MessageCircle,
+  Settings,
+  HelpCircle,
+  Copy,
+  Check,
+  Pencil,
+  ThumbsUp,
+  ThumbsDown,
+  RotateCw,
+} from "lucide-react";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  feedback?: "up" | "down" | null;
 }
 
 interface Conversation {
@@ -27,6 +40,9 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [model, setModel] = useState(AVAILABLE_MODELS[0].id);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentConv = conversations.find((c) => c.id === currentConvId);
@@ -46,36 +62,14 @@ export default function Chat() {
     setCurrentConvId(newId);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    if (!currentConvId) {
-      startNewChat();
-    }
-
-    const convId = currentConvId || Date.now().toString();
-    const userMessage: Message = { role: "user", content: input };
-
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === convId
-          ? { ...c, messages: [...c.messages, userMessage] }
-          : c
-      )
-    );
-
-    setInput("");
+  const getCompletion = async (convId: string, apiMessages: Message[]) => {
     setLoading(true);
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, userMessage],
-          model,
-        }),
+        body: JSON.stringify({ messages: apiMessages, model }),
       });
 
       if (!response.ok) throw new Error("Failed to fetch response");
@@ -84,6 +78,7 @@ export default function Chat() {
       const assistantMessage: Message = {
         role: "assistant",
         content: data.text,
+        feedback: null,
       };
 
       setConversations((prev) =>
@@ -94,8 +89,10 @@ export default function Chat() {
         )
       );
 
-      if (messages.length === 0) {
-        const title = userMessage.content.substring(0, 30) + (userMessage.content.length > 30 ? "..." : "");
+      if (apiMessages.length === 1) {
+        const title =
+          apiMessages[0].content.substring(0, 30) +
+          (apiMessages[0].content.length > 30 ? "..." : "");
         setConversations((prev) =>
           prev.map((c) => (c.id === convId ? { ...c, title } : c))
         );
@@ -121,6 +118,91 @@ export default function Chat() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || loading) return;
+
+    if (!currentConvId) {
+      startNewChat();
+    }
+
+    const convId = currentConvId || Date.now().toString();
+    const userMessage: Message = { role: "user", content: input };
+    const apiMessages = [...messages, userMessage];
+
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? { ...c, messages: [...c.messages, userMessage] }
+          : c
+      )
+    );
+
+    setInput("");
+    await getCompletion(convId, apiMessages);
+  };
+
+  const handleCopy = async (idx: number, content: string) => {
+    await navigator.clipboard.writeText(content);
+    setCopiedIndex(idx);
+    setTimeout(() => setCopiedIndex((cur) => (cur === idx ? null : cur)), 1500);
+  };
+
+  const handleEditStart = (idx: number, content: string) => {
+    setEditingIndex(idx);
+    setEditValue(content);
+  };
+
+  const handleEditCancel = () => {
+    setEditingIndex(null);
+    setEditValue("");
+  };
+
+  const handleEditSave = async (idx: number) => {
+    const trimmed = editValue.trim();
+    if (!trimmed || !currentConvId || loading) return;
+
+    const convId = currentConvId;
+    const apiMessages = [...messages.slice(0, idx), { role: "user" as const, content: trimmed }];
+
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, messages: apiMessages } : c))
+    );
+    setEditingIndex(null);
+    setEditValue("");
+    await getCompletion(convId, apiMessages);
+  };
+
+  const handleRegenerate = async (idx: number) => {
+    if (!currentConvId || loading) return;
+
+    const convId = currentConvId;
+    const apiMessages = messages.slice(0, idx);
+
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, messages: apiMessages } : c))
+    );
+    await getCompletion(convId, apiMessages);
+  };
+
+  const handleFeedback = (idx: number, type: "up" | "down") => {
+    if (!currentConvId) return;
+    const convId = currentConvId;
+
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? {
+              ...c,
+              messages: c.messages.map((m, i) =>
+                i === idx ? { ...m, feedback: m.feedback === type ? null : type } : m
+              ),
+            }
+          : c
+      )
+    );
   };
 
   const suggestedPrompts = [
@@ -234,7 +316,7 @@ export default function Chat() {
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`flex gap-4 py-6 animate-in fade-in ${
+                className={`group flex gap-4 py-6 animate-in fade-in ${
                   msg.role === "user" ? "justify-end" : "justify-start"
                 }`}
               >
@@ -244,15 +326,98 @@ export default function Chat() {
                   </div>
                 )}
                 <div
-                  className={`max-w-2xl ${
-                    msg.role === "user"
-                      ? "text-right"
-                      : "text-left"
+                  className={`max-w-2xl flex flex-col ${
+                    msg.role === "user" ? "items-end" : "items-start"
                   }`}
                 >
-                  <p className="text-gray-900 leading-relaxed whitespace-pre-wrap">
-                    {msg.content}
-                  </p>
+                  {editingIndex === idx ? (
+                    <div className="w-full min-w-[280px]">
+                      <textarea
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        rows={3}
+                        autoFocus
+                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <div className="flex gap-2 mt-2 justify-end">
+                        <button
+                          onClick={handleEditCancel}
+                          className="px-3 py-1.5 text-sm rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => handleEditSave(idx)}
+                          disabled={!editValue.trim() || loading}
+                          className="px-3 py-1.5 text-sm rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-gray-900 leading-relaxed whitespace-pre-wrap">
+                        {msg.content}
+                      </p>
+                      <div className="flex items-center gap-1 mt-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                        {msg.role === "user" ? (
+                          <>
+                            <button
+                              onClick={() => handleCopy(idx, msg.content)}
+                              title="Copy"
+                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                            >
+                              {copiedIndex === idx ? <Check size={14} /> : <Copy size={14} />}
+                            </button>
+                            <button
+                              onClick={() => handleEditStart(idx, msg.content)}
+                              title="Edit"
+                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleFeedback(idx, "up")}
+                              title="Good response"
+                              className={`p-1.5 rounded-md hover:bg-gray-200 transition-colors ${
+                                msg.feedback === "up" ? "text-blue-600" : "text-gray-500"
+                              }`}
+                            >
+                              <ThumbsUp size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleFeedback(idx, "down")}
+                              title="Bad response"
+                              className={`p-1.5 rounded-md hover:bg-gray-200 transition-colors ${
+                                msg.feedback === "down" ? "text-blue-600" : "text-gray-500"
+                              }`}
+                            >
+                              <ThumbsDown size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleRegenerate(idx)}
+                              disabled={loading}
+                              title="Regenerate response"
+                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <RotateCw size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleCopy(idx, msg.content)}
+                              title="Copy"
+                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                            >
+                              {copiedIndex === idx ? <Check size={14} /> : <Copy size={14} />}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
                 {msg.role === "user" && (
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-semibold text-lg">

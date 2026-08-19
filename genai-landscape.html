@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GenAI Landscape</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f4f5f8;
+    --raised: #ffffff;
+    --ink: #14151a;
+    --muted: #5b6472;
+    --line: #dde0e6;
+    --line-soft: #e8eaee;
+
+    --openai: #0e8f6f;      --openai-soft: #e2f5ee;
+    --anthropic: #c2542f;   --anthropic-soft: #fbe7dd;
+    --google: #2f5fd6;      --google-soft: #e4ecfd;
+    --meta: #6d4fd1;        --meta-soft: #ece5fb;
+    --indep: #4b5563;       --indep-soft: #e9ebef;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14161b;
+      --raised: #1b1e25;
+      --ink: #eef0f4;
+      --muted: #9aa3b2;
+      --line: #2b2f38;
+      --line-soft: #23262e;
+
+      --openai: #3fd1a2;      --openai-soft: rgba(63,209,162,0.13);
+      --anthropic: #e2895f;   --anthropic-soft: rgba(226,137,95,0.15);
+      --google: #7d9cf2;      --google-soft: rgba(125,156,242,0.15);
+      --meta: #ac93f2;        --meta-soft: rgba(172,147,242,0.15);
+      --indep: #a3abb9;       --indep-soft: rgba(163,171,185,0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14161b;
+    --raised: #1b1e25;
+    --ink: #eef0f4;
+    --muted: #9aa3b2;
+    --line: #2b2f38;
+    --line-soft: #23262e;
+
+    --openai: #3fd1a2;      --openai-soft: rgba(63,209,162,0.13);
+    --anthropic: #e2895f;   --anthropic-soft: rgba(226,137,95,0.15);
+    --google: #7d9cf2;      --google-soft: rgba(125,156,242,0.15);
+    --meta: #ac93f2;        --meta-soft: rgba(172,147,242,0.15);
+    --indep: #a3abb9;       --indep-soft: rgba(163,171,185,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(ellipse 900px 520px at 12% -8%, rgba(47,95,214,0.07), transparent 60%),
+      radial-gradient(ellipse 900px 600px at 100% 112%, rgba(194,84,47,0.06), transparent 60%),
+      var(--paper);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: "IBM Plex Sans", -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 40px 44px 32px;
+  }
+
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  header { margin-bottom: 26px; }
+  h1 {
+    font-size: 33px;
+    font-weight: 700;
+    margin: 6px 0 6px;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .subtitle { font-size: 15px; color: var(--muted); font-weight: 500; margin: 0 0 16px; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; }
+  .legend .item {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--muted);
+  }
+  .swatch { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+  .swatch.openai { background: var(--openai); }
+  .swatch.anthropic { background: var(--anthropic); }
+  .swatch.google { background: var(--google); }
+  .swatch.meta { background: var(--meta); }
+  .swatch.indep { background: var(--indep); }
+
+  /* ---- Flow strip: labs -> models ---- */
+  figure.flow { margin: 0 0 30px; }
+  .flow-svg { display: block; width: 100%; height: auto; }
+  figcaption.flow-caption {
+    font-size: 14.5px; color: var(--muted); margin-top: 8px;
+  }
+
+  /* ---- Section divider ---- */
+  .divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 0 0 16px;
+  }
+  .divider .eyebrow { white-space: nowrap; }
+  .divider::after {
+    content: ""; flex: 1; height: 1px; background: var(--line);
+  }
+
+  /* ---- Matrix ---- */
+  .matrix {
+    display: grid;
+    grid-template-columns: 148px repeat(5, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+    background: var(--line);
+    gap: 1px;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 22px;
+  }
+  .matrix > div { background: var(--raised); }
+
+  .corner { background: var(--paper) !important; }
+
+  .col-head {
+    padding: 10px 10px;
+    display: flex; align-items: center; gap: 7px;
+    background: var(--paper) !important;
+  }
+  .col-head .swatch { width: 8px; height: 8px; border-radius: 50%; }
+  .col-head span {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em;
+  }
+
+  .row-label {
+    padding: 14px 12px;
+    display: flex; align-items: center;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px; font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    background: var(--paper) !important;
+  }
+
+  .cell {
+    padding: 10px 10px;
+    display: flex; flex-direction: column; gap: 6px;
+    justify-content: center;
+  }
+  .cell.empty {
+    align-items: center; justify-content: center;
+    color: var(--line);
+    font-size: 13px;
+  }
+
+  .chip {
+    display: block;
+    border-radius: 7px;
+    padding: 7px 9px;
+    text-decoration: none;
+    color: inherit;
+  }
+  .chip .name {
+    font-size: 13.5px; font-weight: 700; color: var(--ink);
+    line-height: 1.2;
+  }
+  .chip .desc {
+    font-size: 11.5px; color: var(--muted); line-height: 1.3;
+    margin-top: 2px;
+  }
+  .chip .url {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px; color: var(--muted); opacity: 0.75;
+    margin-top: 3px;
+  }
+  .chip.openai { background: var(--openai-soft); }
+  .chip.anthropic { background: var(--anthropic-soft); }
+  .chip.google { background: var(--google-soft); }
+  .chip.meta { background: var(--meta-soft); }
+  .chip.indep { background: var(--indep-soft); }
+
+  /* ---- Access strip ---- */
+  .access {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .access .chip { flex: 1 1 260px; padding: 12px 14px; background: var(--indep-soft); position: relative; text-decoration: none; color: inherit; }
+  .access .chip .name { font-size: 14px; }
+  .access .chip .desc { font-size: 12px; }
+
+  @media (max-width: 900px) {
+    .matrix { grid-template-columns: 110px repeat(5, minmax(0,1fr)); font-size: 90%; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="eyebrow">Field guide</div>
+    <h1>The GenAI Landscape</h1>
+    <p class="subtitle">Who trains each model family, and the different surfaces you reach them through.</p>
+    <div class="legend">
+      <span class="item"><i class="swatch openai"></i>OpenAI</span>
+      <span class="item"><i class="swatch anthropic"></i>Anthropic</span>
+      <span class="item"><i class="swatch google"></i>Google</span>
+      <span class="item"><i class="swatch meta"></i>Meta</span>
+      <span class="item"><i class="swatch indep"></i>Independent / multi-provider</span>
+    </div>
+  </header>
+
+  <figure class="flow">
+    <svg class="flow-svg" viewBox="0 0 1232 132" aria-labelledby="flow-caption">
+      <!-- column 1: OpenAI -->
+      <g style="color:var(--openai)">
+        <text x="24" y="18" class="mono" style="font-size:12px;font-weight:600;fill:currentColor">OPENAI</text>
+        <text x="24" y="32" class="mono" style="font-size:10px;fill:var(--muted);opacity:0.75">openai.com</text>
+        <line x1="24" y1="42" x2="24" y2="80" stroke="currentColor" stroke-width="2"/>
+        <polygon points="24,86 19,76 29,76" fill="currentColor"/>
+        <text x="24" y="110" style="font-size:19px;font-weight:700;fill:var(--ink)">GPT</text>
+        <text x="24" y="126" style="font-size:11px;fill:var(--muted)">GPT-4o, GPT-5…</text>
+      </g>
+      <!-- column 2: Anthropic -->
+      <g style="color:var(--anthropic)" transform="translate(308,0)">
+        <text x="24" y="18" class="mono" style="font-size:12px;font-weight:600;fill:currentColor">ANTHROPIC</text>
+        <text x="24" y="32" class="mono" style="font-size:10px;fill:var(--muted);opacity:0.75">anthropic.com</text>
+        <line x1="24" y1="42" x2="24" y2="80" stroke="currentColor" stroke-width="2"/>
+        <polygon points="24,86 19,76 29,76" fill="currentColor"/>
+        <text x="24" y="110" style="font-size:19px;font-weight:700;fill:var(--ink)">Claude</text>
+        <text x="24" y="126" style="font-size:11px;fill:var(--muted)">Opus · Sonnet · Haiku · Fable</text>
+      </g>
+      <!-- column 3: Google -->
+      <g style="color:var(--google)" transform="translate(616,0)">
+        <text x="24" y="18" class="mono" style="font-size:12px;font-weight:600;fill:currentColor">GOOGLE DEEPMIND</text>
+        <text x="24" y="32" class="mono" style="font-size:10px;fill:var(--muted);opacity:0.75">deepmind.google</text>
+        <line x1="24" y1="42" x2="24" y2="80" stroke="currentColor" stroke-width="2"/>
+        <polygon points="24,86 19,76 29,76" fill="currentColor"/>
+        <text x="24" y="110" style="font-size:19px;font-weight:700;fill:var(--ink)">Gemini</text>
+        <text x="24" y="126" style="font-size:11px;fill:var(--muted)">Pro, Flash…</text>
+      </g>
+      <!-- column 4: Meta -->
+      <g style="color:var(--meta)" transform="translate(924,0)">
+        <text x="24" y="18" class="mono" style="font-size:12px;font-weight:600;fill:currentColor">META AI</text>
+        <text x="24" y="32" class="mono" style="font-size:10px;fill:var(--muted);opacity:0.75">ai.meta.com</text>
+        <line x1="24" y1="42" x2="24" y2="80" stroke="currentColor" stroke-width="2"/>
+        <polygon points="24,86 19,76 29,76" fill="currentColor"/>
+        <text x="24" y="110" style="font-size:19px;font-weight:700;fill:var(--ink)">Llama</text>
+        <text x="24" y="126" style="font-size:11px;fill:var(--muted)">open-weight</text>
+      </g>
+    </svg>
+    <figcaption class="flow-caption" id="flow-caption">Each lab trains one model family — the model itself is not an app you open, it's what powers everything below.</figcaption>
+  </figure>
+
+  <div class="divider"><span class="eyebrow">Where you reach each model</span></div>
+
+  <div class="matrix">
+    <div class="corner"></div>
+    <div class="col-head"><i class="swatch openai"></i><span>OPENAI</span></div>
+    <div class="col-head"><i class="swatch anthropic"></i><span>ANTHROPIC</span></div>
+    <div class="col-head"><i class="swatch google"></i><span>GOOGLE</span></div>
+    <div class="col-head"><i class="swatch meta"></i><span>META</span></div>
+    <div class="col-head"><i class="swatch indep"></i><span>INDEPENDENT</span></div>
+
+    <div class="row-label">Chat app</div>
+    <div class="cell"><div class="chip openai"><div class="name">ChatGPT</div><div class="desc">Consumer chat for GPT</div><div class="url">chat.openai.com</div></div></div>
+    <div class="cell"><div class="chip anthropic"><div class="name">Claude.ai</div><div class="desc">Consumer chat for Claude</div><div class="url">claude.ai</div></div></div>
+    <div class="cell"><div class="chip google"><div class="name">Gemini app</div><div class="desc">Consumer chat for Gemini</div><div class="url">gemini.google.com</div></div></div>
+    <div class="cell empty">—</div>
+    <div class="cell empty">—</div>
+
+    <div class="row-label">Dev &amp; prototyping</div>
+    <div class="cell empty">—</div>
+    <div class="cell empty">—</div>
+    <div class="cell">
+      <div class="chip google"><div class="name">AI Studio</div><div class="desc">Try Gemini, grab a free key</div><div class="url">aistudio.google.com</div></div>
+      <div class="chip google"><div class="name">Colab</div><div class="desc">Hosted notebooks + GPUs</div><div class="url">colab.research.google.com</div></div>
+      <div class="chip google"><div class="name">Cloud Console</div><div class="desc">Enterprise billing &amp; Vertex AI</div><div class="url">console.cloud.google.com</div></div>
+    </div>
+    <div class="cell empty">—</div>
+    <div class="cell"><div class="chip indep"><div class="name">Hugging Face</div><div class="desc">Open models, datasets, demos</div><div class="url">huggingface.co</div></div></div>
+
+    <div class="row-label">Local runner</div>
+    <div class="cell empty">—</div>
+    <div class="cell empty">—</div>
+    <div class="cell empty">—</div>
+    <div class="cell empty">—</div>
+    <div class="cell"><div class="chip indep"><div class="name">LM Studio</div><div class="desc">Run open models offline</div><div class="url">lmstudio.ai</div></div></div>
+
+    <div class="row-label">Coding agent</div>
+    <div class="cell"><div class="chip openai"><div class="name">Codex</div><div class="desc">CLI / cloud agent</div><div class="url">openai.com/codex</div></div></div>
+    <div class="cell"><div class="chip anthropic"><div class="name">Claude Code</div><div class="desc">CLI / IDE agent — this tool</div><div class="url">claude.com/claude-code</div></div></div>
+    <div class="cell empty">—</div>
+    <div class="cell empty">—</div>
+    <div class="cell">
+      <div class="chip indep"><div class="name">OpenCode</div><div class="desc">Open-source, many providers</div><div class="url">opencode.ai</div></div>
+      <div class="chip indep"><div class="name">GitHub Copilot</div><div class="desc">Backed by GPT, Claude or Gemini</div><div class="url">github.com/features/copilot</div></div>
+      <div class="chip indep"><div class="name">Devin</div><div class="desc">by Cognition — sandboxed engineer</div><div class="url">devin.ai</div></div>
+    </div>
+  </div>
+
+  <div class="divider"><span class="eyebrow">Access &amp; infrastructure — provider-agnostic</span></div>
+  <div class="access">
+    <div class="chip indep"><div class="name">API keys</div><div class="desc">Not a product — a credential. Lets your own code call any of the above programmatically, billed per token.</div></div>
+    <div class="chip indep"><div class="name">Groq / GroqCloud</div><div class="desc">Runs open models (e.g. Llama) on custom "LPU" chips for fast inference. Not a model maker.</div><div class="url">groq.com</div></div>
+  </div>
+
+</div>
+</body>
+</html>
