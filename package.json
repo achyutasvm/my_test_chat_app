@@ -21,6 +21,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "playwright": "^1.62.1",
+    "prettier": "3.9.6",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
