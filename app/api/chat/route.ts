@@ -82,7 +82,7 @@ function buildGenerationConfig(params: ModelParams | undefined) {
     config.topK = Math.floor(topK);
   }
 
-  const seed = Number(params?.seed);
+  const seed = typeof params?.seed === "number" ? params.seed : NaN;
   if (Number.isFinite(seed)) {
     config.seed = Math.floor(seed);
   }
