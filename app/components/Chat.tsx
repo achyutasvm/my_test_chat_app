@@ -13,7 +13,12 @@ import {
   ThumbsUp,
   ThumbsDown,
   RotateCw,
+  PanelRightOpen,
 } from "lucide-react";
+import ModelSettingsPanel, {
+  DEFAULT_MODEL_PARAMS,
+  ModelParams,
+} from "./ModelSettingsPanel";
 
 interface Message {
   role: "user" | "assistant";
@@ -40,6 +45,9 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [model, setModel] = useState(AVAILABLE_MODELS[0].id);
+  const [modelParams, setModelParams] =
+    useState<ModelParams>(DEFAULT_MODEL_PARAMS);
+  const [paramsOpen, setParamsOpen] = useState(true);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -58,62 +66,146 @@ export default function Chat() {
 
   const startNewChat = () => {
     const newId = Date.now().toString();
-    setConversations((prev) => [...prev, { id: newId, title: "New chat", messages: [] }]);
+    setConversations((prev) => [
+      ...prev,
+      { id: newId, title: "New chat", messages: [] },
+    ]);
     setCurrentConvId(newId);
   };
 
   const getCompletion = async (convId: string, apiMessages: Message[]) => {
     setLoading(true);
 
+    const stopSequences = modelParams.stopSequences
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const requestParams = {
+      temperature: modelParams.temperature,
+      maxOutputTokens: modelParams.maxOutputTokens,
+      topP: modelParams.topP,
+      topK: modelParams.topK,
+      frequencyPenalty: modelParams.frequencyPenalty,
+      presencePenalty: modelParams.presencePenalty,
+      stopSequences,
+      seed: modelParams.seed,
+      reasoningLevel: modelParams.reasoningLevel,
+      stream: modelParams.stream,
+      jsonMode: modelParams.jsonMode,
+    };
+
+    let placeholderAdded = false;
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, model }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          model,
+          params: requestParams,
+        }),
       });
 
-      if (!response.ok) throw new Error("Failed to fetch response");
+      if (!response.ok) {
+        let message = "Failed to fetch response";
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) message = errorData.error;
+        } catch {
+          // response body wasn't JSON; keep the default message
+        }
+        throw new Error(message);
+      }
 
-      const data = await response.json();
-      const assistantMessage: Message = {
-        role: "assistant",
-        content: data.text,
-        feedback: null,
-      };
+      if (requestParams.stream && response.body) {
+        const assistantIndex = apiMessages.length;
+        placeholderAdded = true;
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: [
+                    ...c.messages,
+                    { role: "assistant", content: "", feedback: null },
+                  ],
+                }
+              : c,
+          ),
+        );
 
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? { ...c, messages: [...c.messages, assistantMessage] }
-            : c
-        )
-      );
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let accumulated = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          accumulated += decoder.decode(value, { stream: true });
+          const content = accumulated;
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === convId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m, i) =>
+                      i === assistantIndex ? { ...m, content } : m,
+                    ),
+                  }
+                : c,
+            ),
+          );
+        }
+      } else {
+        const data = await response.json();
+        const assistantMessage: Message = {
+          role: "assistant",
+          content: data.text,
+          feedback: null,
+        };
+
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? { ...c, messages: [...c.messages, assistantMessage] }
+              : c,
+          ),
+        );
+      }
 
       if (apiMessages.length === 1) {
         const title =
           apiMessages[0].content.substring(0, 30) +
           (apiMessages[0].content.length > 30 ? "..." : "");
         setConversations((prev) =>
-          prev.map((c) => (c.id === convId ? { ...c, title } : c))
+          prev.map((c) => (c.id === convId ? { ...c, title } : c)),
         );
       }
     } catch (error) {
       console.error("Error:", error);
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Sorry, I encountered an error. Please try again.";
+
       setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? {
-                ...c,
-                messages: [
-                  ...c.messages,
-                  {
-                    role: "assistant",
-                    content: "Sorry, I encountered an error. Please try again.",
-                  },
-                ],
-              }
-            : c
-        )
+        prev.map((c) => {
+          if (c.id !== convId) return c;
+          if (placeholderAdded) {
+            return {
+              ...c,
+              messages: c.messages.map((m, i) =>
+                i === c.messages.length - 1 ? { ...m, content: message } : m,
+              ),
+            };
+          }
+          return {
+            ...c,
+            messages: [...c.messages, { role: "assistant", content: message }],
+          };
+        }),
       );
     } finally {
       setLoading(false);
@@ -134,10 +226,8 @@ export default function Chat() {
 
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === convId
-          ? { ...c, messages: [...c.messages, userMessage] }
-          : c
-      )
+        c.id === convId ? { ...c, messages: [...c.messages, userMessage] } : c,
+      ),
     );
 
     setInput("");
@@ -165,10 +255,13 @@ export default function Chat() {
     if (!trimmed || !currentConvId || loading) return;
 
     const convId = currentConvId;
-    const apiMessages = [...messages.slice(0, idx), { role: "user" as const, content: trimmed }];
+    const apiMessages = [
+      ...messages.slice(0, idx),
+      { role: "user" as const, content: trimmed },
+    ];
 
     setConversations((prev) =>
-      prev.map((c) => (c.id === convId ? { ...c, messages: apiMessages } : c))
+      prev.map((c) => (c.id === convId ? { ...c, messages: apiMessages } : c)),
     );
     setEditingIndex(null);
     setEditValue("");
@@ -182,7 +275,7 @@ export default function Chat() {
     const apiMessages = messages.slice(0, idx);
 
     setConversations((prev) =>
-      prev.map((c) => (c.id === convId ? { ...c, messages: apiMessages } : c))
+      prev.map((c) => (c.id === convId ? { ...c, messages: apiMessages } : c)),
     );
     await getCompletion(convId, apiMessages);
   };
@@ -199,11 +292,11 @@ export default function Chat() {
           ? {
               ...c,
               messages: c.messages.map((m, i) =>
-                i === idx ? { ...m, feedback: newFeedback } : m
+                i === idx ? { ...m, feedback: newFeedback } : m,
               ),
             }
-          : c
-      )
+          : c,
+      ),
     );
 
     if (!newFeedback) return;
@@ -294,7 +387,9 @@ export default function Chat() {
               >
                 <Menu size={20} className="text-gray-700" />
               </button>
-              <h1 className="text-2xl font-semibold text-gray-900">My Gemini App</h1>
+              <h1 className="text-2xl font-semibold text-gray-900">
+                My Gemini App
+              </h1>
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
@@ -307,6 +402,15 @@ export default function Chat() {
                 ))}
               </select>
             </div>
+            {!paramsOpen && (
+              <button
+                onClick={() => setParamsOpen(true)}
+                title="Show parameters"
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <PanelRightOpen size={20} className="text-gray-700" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -315,7 +419,9 @@ export default function Chat() {
           <div className="max-w-4xl mx-auto w-full px-4 py-8">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
-                <h2 className="text-3xl font-semibold text-gray-900 mb-2">Hello there</h2>
+                <h2 className="text-3xl font-semibold text-gray-900 mb-2">
+                  Hello there
+                </h2>
                 <p className="text-gray-600 mb-8">How can I help you today?</p>
 
                 <div className="grid grid-cols-2 gap-3 w-full max-w-2xl">
@@ -325,7 +431,9 @@ export default function Chat() {
                       onClick={() => setInput(prompt)}
                       className="p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-left transition-colors"
                     >
-                      <p className="text-gray-900 text-sm font-medium">{prompt}</p>
+                      <p className="text-gray-900 text-sm font-medium">
+                        {prompt}
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -387,7 +495,11 @@ export default function Chat() {
                               title="Copy"
                               className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
                             >
-                              {copiedIndex === idx ? <Check size={14} /> : <Copy size={14} />}
+                              {copiedIndex === idx ? (
+                                <Check size={14} />
+                              ) : (
+                                <Copy size={14} />
+                              )}
                             </button>
                             <button
                               onClick={() => handleEditStart(idx, msg.content)}
@@ -403,7 +515,9 @@ export default function Chat() {
                               onClick={() => handleFeedback(idx, "up")}
                               title="Good response"
                               className={`p-1.5 rounded-md hover:bg-gray-200 transition-colors ${
-                                msg.feedback === "up" ? "text-blue-600" : "text-gray-500"
+                                msg.feedback === "up"
+                                  ? "text-blue-600"
+                                  : "text-gray-500"
                               }`}
                             >
                               <ThumbsUp size={14} />
@@ -412,7 +526,9 @@ export default function Chat() {
                               onClick={() => handleFeedback(idx, "down")}
                               title="Bad response"
                               className={`p-1.5 rounded-md hover:bg-gray-200 transition-colors ${
-                                msg.feedback === "down" ? "text-blue-600" : "text-gray-500"
+                                msg.feedback === "down"
+                                  ? "text-blue-600"
+                                  : "text-gray-500"
                               }`}
                             >
                               <ThumbsDown size={14} />
@@ -430,7 +546,11 @@ export default function Chat() {
                               title="Copy"
                               className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
                             >
-                              {copiedIndex === idx ? <Check size={14} /> : <Copy size={14} />}
+                              {copiedIndex === idx ? (
+                                <Check size={14} />
+                              ) : (
+                                <Copy size={14} />
+                              )}
                             </button>
                           </>
                         )}
@@ -453,8 +573,14 @@ export default function Chat() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+                  <div
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0.1s" }}
+                  ></div>
+                  <div
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0.2s" }}
+                  ></div>
                 </div>
               </div>
             )}
@@ -486,6 +612,14 @@ export default function Chat() {
           </div>
         </div>
       </div>
+
+      {paramsOpen && (
+        <ModelSettingsPanel
+          params={modelParams}
+          onChange={setModelParams}
+          onClose={() => setParamsOpen(false)}
+        />
+      )}
     </div>
   );
 }
