@@ -26,6 +26,13 @@ interface Message {
   feedback?: "up" | "down" | null;
 }
 
+interface RagSource {
+  source: string;
+  page: number | null;
+}
+
+type ChatMode = "chat" | "rag";
+
 interface Conversation {
   id: string;
   title: string;
@@ -44,6 +51,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mode, setMode] = useState<ChatMode>("chat");
   const [model, setModel] = useState(AVAILABLE_MODELS[0].id);
   const [modelParams, setModelParams] =
     useState<ModelParams>(DEFAULT_MODEL_PARAMS);
@@ -73,8 +81,91 @@ export default function Chat() {
     setCurrentConvId(newId);
   };
 
+  const getRagCompletion = async (convId: string, apiMessages: Message[]) => {
+    const response = await fetch("/api/rag-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: apiMessages }),
+    });
+
+    if (!response.ok) {
+      let message = "Failed to fetch response";
+      try {
+        const errorData = await response.json();
+        if (errorData?.error) message = errorData.error;
+      } catch {
+        // response body wasn't JSON; keep the default message
+      }
+      throw new Error(message);
+    }
+
+    const data: { text: string; sources: RagSource[] } = await response.json();
+
+    const pageLabels = Array.from(
+      new Set(
+        (data.sources ?? [])
+          .map((s) => (s.page != null ? `p. ${s.page}` : null))
+          .filter((label): label is string => label !== null),
+      ),
+    );
+    const content = pageLabels.length
+      ? `${data.text}\n\nSources: ${pageLabels.join(", ")}`
+      : data.text;
+
+    const assistantMessage: Message = {
+      role: "assistant",
+      content,
+      feedback: null,
+    };
+
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? { ...c, messages: [...c.messages, assistantMessage] }
+          : c,
+      ),
+    );
+  };
+
   const getCompletion = async (convId: string, apiMessages: Message[]) => {
     setLoading(true);
+
+    if (mode === "rag") {
+      try {
+        await getRagCompletion(convId, apiMessages);
+
+        if (apiMessages.length === 1) {
+          const title =
+            apiMessages[0].content.substring(0, 30) +
+            (apiMessages[0].content.length > 30 ? "..." : "");
+          setConversations((prev) =>
+            prev.map((c) => (c.id === convId ? { ...c, title } : c)),
+          );
+        }
+      } catch (error) {
+        console.error("Error:", error);
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Sorry, I encountered an error. Please try again.";
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: [
+                    ...c.messages,
+                    { role: "assistant", content: message },
+                  ],
+                }
+              : c,
+          ),
+        );
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     const stopSequences = modelParams.stopSequences
       .split(",")
@@ -390,19 +481,43 @@ export default function Chat() {
               <h1 className="text-2xl font-semibold text-gray-900">
                 My Gemini App
               </h1>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                {AVAILABLE_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
+              <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm">
+                <button
+                  onClick={() => setMode("chat")}
+                  className={`px-3 py-1.5 transition-colors ${
+                    mode === "chat"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Chat
+                </button>
+                <button
+                  onClick={() => setMode("rag")}
+                  className={`px-3 py-1.5 transition-colors ${
+                    mode === "rag"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Document Q&A
+                </button>
+              </div>
+              {mode === "chat" && (
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  {AVAILABLE_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
-            {!paramsOpen && (
+            {mode === "chat" && !paramsOpen && (
               <button
                 onClick={() => setParamsOpen(true)}
                 title="Show parameters"
@@ -597,7 +712,9 @@ export default function Chat() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Message Gemini"
+                placeholder={
+                  mode === "rag" ? "Ask about the document" : "Message Gemini"
+                }
                 disabled={loading}
                 className="flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500 disabled:bg-gray-50 disabled:cursor-not-allowed transition-all bg-white text-gray-900"
               />
@@ -613,7 +730,7 @@ export default function Chat() {
         </div>
       </div>
 
-      {paramsOpen && (
+      {mode === "chat" && paramsOpen && (
         <ModelSettingsPanel
           params={modelParams}
           onChange={setModelParams}
