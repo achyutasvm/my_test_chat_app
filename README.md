@@ -1,40 +1,77 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# My Gemini App
 
-## Architecture
+A Next.js chat app with two modes:
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for a diagram and request flow overview.
+- **Chat** — general-purpose chat via Google Gemini (`@google/genai`), with
+  adjustable model/temperature/top-p/etc. and streaming responses.
+- **Document Q&A** — retrieval-augmented Q&A over PDFs, backed by a companion
+  Pinecone + LangChain FastAPI service
+  ([vector_embeddings](https://github.com/achyutasvm/vector_embeddings)).
+  Answers cite source page numbers, and you can upload new PDFs to the
+  knowledge base directly from the UI.
 
-## Getting Started
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the original Gemini-only request
+flow diagram. It predates the Document Q&A mode below.
 
-First, run the development server:
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.local.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Fill in `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+GOOGLE_GENAI_API_KEY=your_gemini_api_key   # required for Chat mode
+RAG_API_URL=http://localhost:8000          # required for Document Q&A mode
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Get a Gemini key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+  Chat mode needs billing/credits set up on that project — a valid key alone
+  isn't enough if the project's prepay balance is at $0.
+- `RAG_API_URL` points at the FastAPI service from the `vector_embeddings`
+  repo. Document Q&A mode won't work unless that service is running.
+
+## Running both apps together
+
+```bash
+# Terminal 1 — RAG backend (from the vector_embeddings repo)
+cd path/to/vector_embeddings
+source .venv/bin/activate
+uvicorn app.server:app --reload --port 8000
+
+# Terminal 2 — this app
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000), then switch between
+**Chat** and **Document Q&A** using the toggle in the header.
+
+## Document Q&A mode
+
+- Ask questions about whatever PDFs have been ingested into the Pinecone
+  index. Responses include a `Sources: p. X, p. Y, ...` footer.
+- **Upload PDF** (visible only in this mode) sends a file to
+  `/api/rag-ingest`, which proxies to the FastAPI service's `POST /ingest` —
+  the file is chunked, embedded, and upserted into Pinecone, and becomes
+  queryable immediately.
+- If uploads or questions fail with a fetch/connection error, the FastAPI
+  backend likely isn't running — check `curl http://localhost:8000/health`.
+
+## Project structure
+
+- `app/components/Chat.tsx` — the chat UI, including the mode toggle and
+  upload control.
+- `app/api/chat/route.ts` — Gemini bridge for Chat mode.
+- `app/api/rag-chat/route.ts` — proxies Document Q&A questions to the
+  FastAPI `/chat` endpoint.
+- `app/api/rag-ingest/route.ts` — proxies PDF uploads to the FastAPI
+  `/ingest` endpoint.
+- `app/api/feedback/route.ts` — logs thumbs up/down feedback to a local CSV.
 
 ## Learn More
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Next.js Documentation](https://nextjs.org/docs)
+- [vector_embeddings](https://github.com/achyutasvm/vector_embeddings) — the
+  RAG backend this app's Document Q&A mode depends on.
