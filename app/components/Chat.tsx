@@ -14,6 +14,7 @@ import {
   ThumbsDown,
   RotateCw,
   PanelRightOpen,
+  CloudUpload,
 } from "lucide-react";
 import ModelSettingsPanel, {
   DEFAULT_MODEL_PARAMS,
@@ -56,6 +57,12 @@ export default function Chat() {
   const [modelParams, setModelParams] =
     useState<ModelParams>(DEFAULT_MODEL_PARAMS);
   const [paramsOpen, setParamsOpen] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -79,6 +86,46 @@ export default function Chat() {
       { id: newId, title: "New chat", messages: [] },
     ]);
     setCurrentConvId(newId);
+  };
+
+  const handleFileSelected = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setUploading(true);
+    setUploadStatus(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/rag-ingest", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Upload failed");
+      }
+
+      setUploadStatus({
+        kind: "success",
+        message: `Ingested "${data.filename}": ${data.pages} pages, ${data.chunks} chunks.`,
+      });
+    } catch (error) {
+      setUploadStatus({
+        kind: "error",
+        message:
+          error instanceof Error ? error.message : "Upload failed",
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   const getRagCompletion = async (convId: string, apiMessages: Message[]) => {
@@ -516,6 +563,25 @@ export default function Chat() {
                   ))}
                 </select>
               )}
+              {mode === "rag" && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleFileSelected}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <CloudUpload size={16} />
+                    {uploading ? "Uploading..." : "Upload PDF"}
+                  </button>
+                </>
+              )}
             </div>
             {mode === "chat" && !paramsOpen && (
               <button
@@ -527,6 +593,17 @@ export default function Chat() {
               </button>
             )}
           </div>
+          {mode === "rag" && uploadStatus && (
+            <div
+              className={`max-w-4xl mx-auto px-4 pb-3 text-sm ${
+                uploadStatus.kind === "success"
+                  ? "text-green-700"
+                  : "text-red-600"
+              }`}
+            >
+              {uploadStatus.message}
+            </div>
+          )}
         </div>
 
         {/* Messages */}
