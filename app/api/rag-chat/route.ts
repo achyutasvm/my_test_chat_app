@@ -7,14 +7,29 @@ interface Source {
   page: number | null;
 }
 
+type VectorStore = "pinecone" | "qdrant";
+
+function resolveRagApiUrl(vectorStore: VectorStore): string | undefined {
+  return vectorStore === "qdrant"
+    ? process.env.RAG_API_URL_QDRANT
+    : process.env.RAG_API_URL_PINECONE;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { messages } = await request.json();
+    const { messages, vectorStore: rawVectorStore } = await request.json();
+    const vectorStore: VectorStore =
+      rawVectorStore === "qdrant" ? "qdrant" : "pinecone";
 
-    const ragApiUrl = process.env.RAG_API_URL;
+    const ragApiUrl = resolveRagApiUrl(vectorStore);
     if (!ragApiUrl) {
       return NextResponse.json(
-        { error: "RAG_API_URL not configured" },
+        {
+          error:
+            vectorStore === "qdrant"
+              ? "RAG_API_URL_QDRANT not configured"
+              : "RAG_API_URL_PINECONE not configured",
+        },
         { status: 500 },
       );
     }

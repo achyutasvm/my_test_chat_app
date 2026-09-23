@@ -33,6 +33,12 @@ interface RagSource {
 }
 
 type ChatMode = "chat" | "rag";
+type VectorStore = "pinecone" | "qdrant";
+
+const VECTOR_STORES: { id: VectorStore; label: string }[] = [
+  { id: "pinecone", label: "Pinecone" },
+  { id: "qdrant", label: "Qdrant" },
+];
 
 interface Conversation {
   id: string;
@@ -53,6 +59,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mode, setMode] = useState<ChatMode>("chat");
+  const [vectorStore, setVectorStore] = useState<VectorStore>("pinecone");
   const [model, setModel] = useState(AVAILABLE_MODELS[0].id);
   const [modelParams, setModelParams] =
     useState<ModelParams>(DEFAULT_MODEL_PARAMS);
@@ -101,6 +108,7 @@ export default function Chat() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("vector_store", vectorStore);
 
       const response = await fetch("/api/rag-ingest", {
         method: "POST",
@@ -113,9 +121,11 @@ export default function Chat() {
         throw new Error(data?.error || "Upload failed");
       }
 
+      const storeLabel =
+        VECTOR_STORES.find((s) => s.id === vectorStore)?.label ?? vectorStore;
       setUploadStatus({
         kind: "success",
-        message: `Ingested "${data.filename}": ${data.pages} pages, ${data.chunks} chunks.`,
+        message: `Ingested "${data.filename}" into ${storeLabel}: ${data.pages} pages, ${data.chunks} chunks.`,
       });
     } catch (error) {
       setUploadStatus({
@@ -132,7 +142,7 @@ export default function Chat() {
     const response = await fetch("/api/rag-chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: apiMessages }),
+      body: JSON.stringify({ messages: apiMessages, vectorStore }),
     });
 
     if (!response.ok) {
@@ -565,6 +575,20 @@ export default function Chat() {
               )}
               {mode === "rag" && (
                 <>
+                  <select
+                    value={vectorStore}
+                    onChange={(e) =>
+                      setVectorStore(e.target.value as VectorStore)
+                    }
+                    title="Vector store used for uploads and questions"
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    {VECTOR_STORES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     ref={fileInputRef}
                     type="file"
