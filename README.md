@@ -21,7 +21,8 @@ Guard blocks unsafe requests and replies. Chat mode responses are **cached in
 memory** so repeated requests skip the Gemini call.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the architecture diagram and
-request flows.
+request flows, and [MODELS.md](./MODELS.md) for every model and vector store
+used and what each one is for.
 
 ## Setup
 

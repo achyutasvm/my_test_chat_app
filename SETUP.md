@@ -59,4 +59,5 @@ Reranking needs nothing extra in this app; it runs in the RAG backends.
 - `app/utils/` — `guardrails.ts`, `responseCache.ts`
 - `.env.local` — environment variables (create from `.env.local.example`)
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces connect.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces connect and
+[MODELS.md](./MODELS.md) for which model does what.

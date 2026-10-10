@@ -7,7 +7,8 @@ guardrail checks through Groq (Prompt Guard) and a local Ollama server (Llama
 Guard).
 
 The editable Draw.io source of the system diagram is
-[ARCHITECTURE.drawio](./ARCHITECTURE.drawio).
+[ARCHITECTURE.drawio](./ARCHITECTURE.drawio). [MODELS.md](./MODELS.md) lists
+every model behind these components and what each one is for.
 
 ## System diagram
 
