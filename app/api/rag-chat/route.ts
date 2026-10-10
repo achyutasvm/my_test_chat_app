@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  blockedResponse,
+  checkInput,
+  checkOutput,
+  GuardMessage,
+  guardrailsConfigured,
+} from "../../utils/guardrails";
 
 export const runtime = "nodejs";
 
 interface Source {
   source: string;
   page: number | null;
+  rerank_score?: number | null;
 }
 
 type VectorStore = "pinecone" | "qdrant";
@@ -17,7 +25,12 @@ function resolveRagApiUrl(vectorStore: VectorStore): string | undefined {
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages, vectorStore: rawVectorStore } = await request.json();
+    const {
+      messages,
+      vectorStore: rawVectorStore,
+      rerank,
+      guardrails,
+    } = await request.json();
     const vectorStore: VectorStore =
       rawVectorStore === "qdrant" ? "qdrant" : "pinecone";
 
@@ -34,10 +47,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const guarded = guardrails !== false && guardrailsConfigured();
+    let guardStatus = guarded ? "on" : "off";
+    const history: GuardMessage[] = messages.map(
+      (m: { role: string; content: string }) => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.content,
+      }),
+    );
+
+    if (guarded) {
+      const verdict = await checkInput(history);
+      if (verdict.errors.length) guardStatus = "degraded";
+      if (!verdict.allowed) {
+        return blockedResponse(verdict, { "X-Guardrails": guardStatus });
+      }
+    }
+
     const upstream = await fetch(`${ragApiUrl}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
+      // Omit `rerank` unless it's a boolean so the backend's RERANK_ENABLED
+      // default applies.
+      body: JSON.stringify({
+        messages,
+        ...(typeof rerank === "boolean" ? { rerank } : {}),
+      }),
     });
 
     if (!upstream.ok) {
@@ -53,7 +88,18 @@ export async function POST(request: NextRequest) {
 
     const data: { text: string; sources: Source[] } = await upstream.json();
 
-    return NextResponse.json({ text: data.text, sources: data.sources });
+    if (guarded) {
+      const verdict = await checkOutput(history, data.text);
+      if (verdict.errors.length) guardStatus = "degraded";
+      if (!verdict.allowed) {
+        return blockedResponse(verdict, { "X-Guardrails": guardStatus });
+      }
+    }
+
+    return NextResponse.json(
+      { text: data.text, sources: data.sources },
+      { headers: { "X-Guardrails": guardStatus } },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("RAG chat API error:", message);

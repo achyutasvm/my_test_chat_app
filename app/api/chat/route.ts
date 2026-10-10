@@ -1,5 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getCachedResponse,
+  makeCacheKey,
+  setCachedResponse,
+} from "../../utils/responseCache";
+import {
+  blockedResponse,
+  checkInput,
+  checkOutput,
+  GuardMessage,
+  guardrailsConfigured,
+} from "../../utils/guardrails";
 
 export const runtime = "nodejs";
 
@@ -110,7 +122,8 @@ function buildGenerationConfig(params: ModelParams | undefined) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages, model, params } = await request.json();
+    const { messages, model, params, skipCache, guardrails } =
+      await request.json();
     const selectedModel = AVAILABLE_MODELS.includes(model)
       ? model
       : AVAILABLE_MODELS[0];
@@ -133,7 +146,60 @@ export async function POST(request: NextRequest) {
 
     const config = buildGenerationConfig(params);
 
-    if (params?.stream) {
+    // Guardrails run unless the client opts out, and only when HF_TOKEN is
+    // set. The input check runs before the cache lookup; the flag is part of
+    // the cache key so guarded entries are always ones that passed the
+    // output check.
+    const guarded = guardrails !== false && guardrailsConfigured();
+    const guardState = { status: guarded ? "on" : "off" };
+    const guardHeaders = () => ({ "X-Guardrails": guardState.status });
+    const history: GuardMessage[] = messages.map(
+      (m: { role: string; content: string }) => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.content,
+      }),
+    );
+
+    if (guarded) {
+      const verdict = await checkInput(history);
+      if (verdict.errors.length) guardState.status = "degraded";
+      if (!verdict.allowed) return blockedResponse(verdict, guardHeaders());
+    }
+
+    // Keyed on the normalized config (which excludes `stream`), so streamed
+    // and non-streamed requests for the same prompt share an entry.
+    const cacheKey = makeCacheKey({
+      model: selectedModel,
+      contents,
+      config,
+      guarded,
+    });
+    const cached = skipCache ? undefined : getCachedResponse(cacheKey);
+    const lastUser = [...messages]
+      .reverse()
+      .find((m: { role: string }) => m.role === "user");
+    const cacheMeta = {
+      model: selectedModel,
+      prompt: lastUser?.content ?? "",
+      turns: messages.length,
+    };
+
+    const textResponse = (text: string, cache: "HIT" | "MISS") => {
+      const headers = { ...guardHeaders(), "X-Cache": cache };
+      if (params?.stream) {
+        return new Response(text, {
+          headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" },
+        });
+      }
+      return NextResponse.json({ text }, { headers });
+    };
+
+    if (cached !== undefined) return textResponse(cached, "HIT");
+
+    // With guardrails on, the reply has to be checked before any of it
+    // reaches the user, so a streaming request is generated in full first
+    // and then sent in one piece.
+    if (params?.stream && !guarded) {
       const streamResult = await ai.models.generateContentStream({
         model: selectedModel,
         contents,
@@ -144,13 +210,18 @@ export async function POST(request: NextRequest) {
       const readable = new ReadableStream({
         async start(controller) {
           let receivedAny = false;
+          let fullText = "";
           try {
             for await (const chunk of streamResult) {
               if (chunk.text) {
                 receivedAny = true;
+                fullText += chunk.text;
                 controller.enqueue(encoder.encode(chunk.text));
               }
             }
+            // Only cache streams that completed; a mid-stream failure
+            // leaves a truncated response.
+            if (fullText) setCachedResponse(cacheKey, fullText, cacheMeta);
           } catch (error) {
             const message = extractApiErrorMessage(error);
             console.error("Chat stream error:", message);
@@ -164,7 +235,11 @@ export async function POST(request: NextRequest) {
       });
 
       return new Response(readable, {
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        headers: {
+          ...guardHeaders(),
+          "Content-Type": "text/plain; charset=utf-8",
+          "X-Cache": "MISS",
+        },
       });
     }
 
@@ -174,11 +249,16 @@ export async function POST(request: NextRequest) {
       config,
     });
 
-    const text =
-      response.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No response generated";
+    const generated = response.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    return NextResponse.json({ text });
+    if (guarded && generated) {
+      const verdict = await checkOutput(history, generated);
+      if (verdict.errors.length) guardState.status = "degraded";
+      if (!verdict.allowed) return blockedResponse(verdict, guardHeaders());
+    }
+
+    if (generated) setCachedResponse(cacheKey, generated, cacheMeta);
+    return textResponse(generated || "No response generated", "MISS");
   } catch (error) {
     const message = extractApiErrorMessage(error);
     console.error("Chat API error:", message);
