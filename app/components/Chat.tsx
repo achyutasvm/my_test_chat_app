@@ -15,7 +15,15 @@ import {
   RotateCw,
   PanelRightOpen,
   CloudUpload,
+  Mic,
+  Square,
+  Volume2,
+  Loader2,
+  Database,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
+import Link from "next/link";
 import ModelSettingsPanel, {
   DEFAULT_MODEL_PARAMS,
   ModelParams,
@@ -25,11 +33,75 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   feedback?: "up" | "down" | null;
+  cached?: boolean;
+  // Set on an assistant message that replaced a reply blocked by guardrails.
+  blocked?: GuardBlock;
+  // Set on a user message whose exchange was blocked; it's kept on screen
+  // but never sent to the model again.
+  excluded?: boolean;
+}
+
+interface GuardBlock {
+  stage: "input" | "output";
+  guard: "prompt-guard" | "llama-guard" | "unavailable";
+  reason: string;
+  categories?: string[];
+  score?: number;
+}
+
+const GUARD_NAMES: Record<GuardBlock["guard"], string> = {
+  "prompt-guard": "Prompt Guard",
+  "llama-guard": "Llama Guard",
+  unavailable: "Guardrails",
+};
+
+function describeBlock(block: GuardBlock): string {
+  const what =
+    block.stage === "input"
+      ? "Your message was blocked"
+      : "The response was blocked";
+  const score =
+    block.score !== undefined ? ` (score ${block.score.toFixed(3)})` : "";
+  return `${what} by ${GUARD_NAMES[block.guard]}: ${block.reason}${score}.`;
+}
+
+// Drops blocked exchanges (and client-only fields) before sending history to
+// the server, so the model never sees a blocked prompt or reply.
+function toApiMessages(messages: Message[]) {
+  return messages
+    .filter((m) => !m.excluded && !m.blocked)
+    .map(({ role, content }) => ({ role, content }));
 }
 
 interface RagSource {
   source: string;
   page: number | null;
+  rerank_score?: number | null;
+}
+
+// Sources arrive in rank order (reranker order when reranking ran, vector
+// search order otherwise). Keep that order, merge chunks from the same page
+// into one entry (keeping its best-ranked score), and show the score when
+// there is one, e.g. "p. 32 (0.537), p. 50 ×2, p. 27".
+function formatSources(sources: RagSource[]): string | null {
+  const pages: { page: number; score: number | null; count: number }[] = [];
+  for (const s of sources) {
+    if (s.page == null) continue;
+    const existing = pages.find((p) => p.page === s.page);
+    if (existing) existing.count += 1;
+    else pages.push({ page: s.page, score: s.rerank_score ?? null, count: 1 });
+  }
+  if (pages.length === 0) return null;
+
+  const reranked = pages.some((p) => p.score !== null);
+  const labels = pages.map(({ page, score, count }) => {
+    const details = [
+      score !== null ? score.toFixed(Math.abs(score) >= 1 ? 2 : 3) : null,
+      count > 1 ? `×${count}` : null,
+    ].filter(Boolean);
+    return details.length ? `p. ${page} (${details.join(", ")})` : `p. ${page}`;
+  });
+  return `${reranked ? "Sources, reranked" : "Sources, vector search order"}: ${labels.join(", ")}`;
 }
 
 type ChatMode = "chat" | "rag";
@@ -60,6 +132,8 @@ export default function Chat() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mode, setMode] = useState<ChatMode>("chat");
   const [vectorStore, setVectorStore] = useState<VectorStore>("pinecone");
+  const [rerank, setRerank] = useState(true);
+  const [guardrails, setGuardrails] = useState(true);
   const [model, setModel] = useState(AVAILABLE_MODELS[0].id);
   const [modelParams, setModelParams] =
     useState<ModelParams>(DEFAULT_MODEL_PARAMS);
@@ -74,6 +148,13 @@ export default function Chat() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [ttsLoadingIndex, setTtsLoadingIndex] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentConv = conversations.find((c) => c.id === currentConvId);
   const messages = currentConv?.messages || [];
@@ -95,9 +176,7 @@ export default function Chat() {
     setCurrentConvId(newId);
   };
 
-  const handleFileSelected = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -130,19 +209,51 @@ export default function Chat() {
     } catch (error) {
       setUploadStatus({
         kind: "error",
-        message:
-          error instanceof Error ? error.message : "Upload failed",
+        message: error instanceof Error ? error.message : "Upload failed",
       });
     } finally {
       setUploading(false);
     }
   };
 
+  // Marks the user message as excluded from future requests and adds an
+  // assistant message explaining what was blocked.
+  const addBlockedReply = (
+    convId: string,
+    userIndex: number,
+    blocked: GuardBlock,
+  ) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? {
+              ...c,
+              messages: [
+                ...c.messages.map((m, i) =>
+                  i === userIndex ? { ...m, excluded: true } : m,
+                ),
+                {
+                  role: "assistant",
+                  content: describeBlock(blocked),
+                  blocked,
+                },
+              ],
+            }
+          : c,
+      ),
+    );
+  };
+
   const getRagCompletion = async (convId: string, apiMessages: Message[]) => {
     const response = await fetch("/api/rag-chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: apiMessages, vectorStore }),
+      body: JSON.stringify({
+        messages: toApiMessages(apiMessages),
+        vectorStore,
+        rerank,
+        guardrails,
+      }),
     });
 
     if (!response.ok) {
@@ -156,18 +267,16 @@ export default function Chat() {
       throw new Error(message);
     }
 
+    if (response.headers.get("X-Guardrails-Blocked")) {
+      const { blocked } = await response.json();
+      addBlockedReply(convId, apiMessages.length - 1, blocked);
+      return;
+    }
+
     const data: { text: string; sources: RagSource[] } = await response.json();
 
-    const pageLabels = Array.from(
-      new Set(
-        (data.sources ?? [])
-          .map((s) => (s.page != null ? `p. ${s.page}` : null))
-          .filter((label): label is string => label !== null),
-      ),
-    );
-    const content = pageLabels.length
-      ? `${data.text}\n\nSources: ${pageLabels.join(", ")}`
-      : data.text;
+    const sourcesLine = formatSources(data.sources ?? []);
+    const content = sourcesLine ? `${data.text}\n\n${sourcesLine}` : data.text;
 
     const assistantMessage: Message = {
       role: "assistant",
@@ -184,7 +293,11 @@ export default function Chat() {
     );
   };
 
-  const getCompletion = async (convId: string, apiMessages: Message[]) => {
+  const getCompletion = async (
+    convId: string,
+    apiMessages: Message[],
+    skipCache = false,
+  ) => {
     setLoading(true);
 
     if (mode === "rag") {
@@ -250,9 +363,11 @@ export default function Chat() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: apiMessages,
+          messages: toApiMessages(apiMessages),
           model,
           params: requestParams,
+          skipCache,
+          guardrails,
         }),
       });
 
@@ -267,6 +382,14 @@ export default function Chat() {
         throw new Error(message);
       }
 
+      if (response.headers.get("X-Guardrails-Blocked")) {
+        const { blocked } = await response.json();
+        addBlockedReply(convId, apiMessages.length - 1, blocked);
+        return;
+      }
+
+      const cached = response.headers.get("X-Cache") === "HIT";
+
       if (requestParams.stream && response.body) {
         const assistantIndex = apiMessages.length;
         placeholderAdded = true;
@@ -277,7 +400,12 @@ export default function Chat() {
                   ...c,
                   messages: [
                     ...c.messages,
-                    { role: "assistant", content: "", feedback: null },
+                    {
+                      role: "assistant",
+                      content: "",
+                      feedback: null,
+                      cached,
+                    },
                   ],
                 }
               : c,
@@ -312,6 +440,7 @@ export default function Chat() {
           role: "assistant",
           content: data.text,
           feedback: null,
+          cached,
         };
 
         setConversations((prev) =>
@@ -382,6 +511,123 @@ export default function Chat() {
     await getCompletion(convId, apiMessages);
   };
 
+  const transcribeAudio = async (blob: Blob) => {
+    setTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append("audio", blob, "recording");
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Transcription failed");
+      if (!data.text) {
+        setVoiceError("No speech detected. Try again.");
+        return;
+      }
+      setInput((prev) =>
+        prev.trim() ? `${prev.trim()} ${data.text}` : data.text,
+      );
+    } catch (error) {
+      setVoiceError(
+        error instanceof Error ? error.message : "Transcription failed",
+      );
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const startRecording = async () => {
+    setVoiceError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("Voice input isn't supported in this browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        if (blob.size > 0) transcribeAudio(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setVoiceError("Microphone access was denied.");
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setRecording(false);
+  };
+
+  const stopSpeaking = () => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      URL.revokeObjectURL(audio.src);
+      audioRef.current = null;
+    }
+    setSpeakingIndex(null);
+  };
+
+  const handleSpeak = async (idx: number, content: string) => {
+    if (speakingIndex === idx) {
+      stopSpeaking();
+      return;
+    }
+    stopSpeaking();
+    setTtsLoadingIndex(idx);
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content }),
+      });
+      if (!response.ok) {
+        let message = "Failed to generate speech";
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) message = errorData.error;
+        } catch {
+          // response body wasn't JSON; keep the default message
+        }
+        throw new Error(message);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const audio = new Audio(url);
+      audio.onended = () => {
+        if (audioRef.current === audio) stopSpeaking();
+      };
+      audioRef.current = audio;
+      setSpeakingIndex(idx);
+      await audio.play();
+    } catch (error) {
+      console.error("TTS error:", error);
+      stopSpeaking();
+    } finally {
+      setTtsLoadingIndex(null);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop();
+      audioRef.current?.pause();
+    };
+  }, []);
+
   const handleCopy = async (idx: number, content: string) => {
     await navigator.clipboard.writeText(content);
     setCopiedIndex(idx);
@@ -420,12 +666,16 @@ export default function Chat() {
     if (!currentConvId || loading) return;
 
     const convId = currentConvId;
-    const apiMessages = messages.slice(0, idx);
+    // Regenerating a blocked reply retries its prompt, which goes back
+    // through the guardrails.
+    const apiMessages = messages
+      .slice(0, idx)
+      .map((m, i) => (i === idx - 1 ? { ...m, excluded: false } : m));
 
     setConversations((prev) =>
       prev.map((c) => (c.id === convId ? { ...c, messages: apiMessages } : c)),
     );
-    await getCompletion(convId, apiMessages);
+    await getCompletion(convId, apiMessages, true);
   };
 
   const handleFeedback = async (idx: number, type: "up" | "down") => {
@@ -512,6 +762,15 @@ export default function Chat() {
         </div>
 
         <div className="p-3 border-t border-gray-200 space-y-2">
+          {process.env.NODE_ENV === "development" && (
+            <Link
+              href="/dev/cache"
+              className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-600 text-sm transition-colors"
+            >
+              <Database size={18} />
+              Response cache
+            </Link>
+          )}
           <button className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-600 text-sm transition-colors">
             <HelpCircle size={18} />
             Help & FAQ
@@ -528,17 +787,17 @@ export default function Chat() {
         {/* Header */}
         <div className="border-b border-gray-200 bg-white bg-opacity-80 backdrop-blur-sm">
           <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <Menu size={20} className="text-gray-700" />
               </button>
-              <h1 className="text-2xl font-semibold text-gray-900">
+              <h1 className="text-2xl font-semibold text-gray-900 whitespace-nowrap">
                 My Gemini App
               </h1>
-              <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm">
+              <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm whitespace-nowrap">
                 <button
                   onClick={() => setMode("chat")}
                   className={`px-3 py-1.5 transition-colors ${
@@ -560,6 +819,23 @@ export default function Chat() {
                   Document Q&A
                 </button>
               </div>
+              <label
+                title="Check prompts with Prompt Guard and Llama Guard, and replies with Llama Guard"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm cursor-pointer select-none transition-colors ${
+                  guardrails
+                    ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={guardrails}
+                  onChange={(e) => setGuardrails(e.target.checked)}
+                  className="accent-green-600"
+                />
+                <ShieldCheck size={16} />
+                Guardrails
+              </label>
               {mode === "chat" && (
                 <select
                   value={model}
@@ -589,6 +865,18 @@ export default function Chat() {
                       </option>
                     ))}
                   </select>
+                  <label
+                    title="Retrieve extra candidate chunks and reorder them with a reranker model before answering"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 cursor-pointer select-none hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={rerank}
+                      onChange={(e) => setRerank(e.target.checked)}
+                      className="accent-blue-600"
+                    />
+                    Rerank
+                  </label>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -700,9 +988,28 @@ export default function Chat() {
                     </div>
                   ) : (
                     <>
-                      <p className="text-gray-900 leading-relaxed whitespace-pre-wrap">
-                        {msg.content}
-                      </p>
+                      {msg.blocked ? (
+                        <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 leading-relaxed">
+                          <ShieldAlert
+                            size={18}
+                            className="flex-shrink-0 mt-0.5"
+                          />
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                        </div>
+                      ) : (
+                        <p
+                          className={`leading-relaxed whitespace-pre-wrap ${
+                            msg.excluded ? "text-gray-400" : "text-gray-900"
+                          }`}
+                        >
+                          {msg.content}
+                        </p>
+                      )}
+                      {msg.excluded && (
+                        <span className="mt-1 text-xs text-gray-400">
+                          Blocked, not sent to the model
+                        </span>
+                      )}
                       <div className="flex items-center gap-1 mt-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
                         {msg.role === "user" ? (
                           <>
@@ -750,6 +1057,28 @@ export default function Chat() {
                               <ThumbsDown size={14} />
                             </button>
                             <button
+                              onClick={() => handleSpeak(idx, msg.content)}
+                              disabled={ttsLoadingIndex === idx || !msg.content}
+                              title={
+                                speakingIndex === idx
+                                  ? "Stop reading"
+                                  : "Read aloud"
+                              }
+                              className={`p-1.5 rounded-md hover:bg-gray-200 disabled:cursor-wait transition-colors ${
+                                speakingIndex === idx
+                                  ? "text-blue-600"
+                                  : "text-gray-500"
+                              }`}
+                            >
+                              {ttsLoadingIndex === idx ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : speakingIndex === idx ? (
+                                <Square size={14} />
+                              ) : (
+                                <Volume2 size={14} />
+                              )}
+                            </button>
+                            <button
                               onClick={() => handleRegenerate(idx)}
                               disabled={loading}
                               title="Regenerate response"
@@ -768,6 +1097,14 @@ export default function Chat() {
                                 <Copy size={14} />
                               )}
                             </button>
+                            {msg.cached && (
+                              <span
+                                title="Served from the response cache. Regenerate for a fresh answer."
+                                className="ml-1 px-1.5 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-500"
+                              >
+                                Cached
+                              </span>
+                            )}
                           </>
                         )}
                       </div>
@@ -814,19 +1151,47 @@ export default function Chat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
-                  mode === "rag" ? "Ask about the document" : "Message Gemini"
+                  recording
+                    ? "Listening... click the mic to stop"
+                    : transcribing
+                      ? "Transcribing..."
+                      : mode === "rag"
+                        ? "Ask about the document"
+                        : "Message Gemini"
                 }
                 disabled={loading}
                 className="flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500 disabled:bg-gray-50 disabled:cursor-not-allowed transition-all bg-white text-gray-900"
               />
               <button
+                type="button"
+                onClick={recording ? stopRecording : startRecording}
+                disabled={transcribing || (loading && !recording)}
+                title={recording ? "Stop recording" : "Speak your message"}
+                className={`p-3 rounded-full border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  recording
+                    ? "bg-red-600 border-red-600 text-white animate-pulse"
+                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                {transcribing ? (
+                  <Loader2 size={20} className="animate-spin" />
+                ) : recording ? (
+                  <Square size={20} />
+                ) : (
+                  <Mic size={20} />
+                )}
+              </button>
+              <button
                 type="submit"
-                disabled={loading || !input.trim()}
+                disabled={loading || recording || transcribing || !input.trim()}
                 className="px-6 py-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium"
               >
                 Send
               </button>
             </form>
+            {voiceError && (
+              <p className="mt-2 px-4 text-sm text-red-600">{voiceError}</p>
+            )}
           </div>
         </div>
       </div>

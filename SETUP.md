@@ -1,53 +1,63 @@
-# Gemini Chat App
+# Gemini Chat App — Quick Start
 
-A simple React chat application powered by Google Gemini 3.5 Flash model.
+A Next.js chat app powered by Google Gemini, with a Document Q&A (RAG) mode,
+voice input and read-aloud, a response cache, reranking, and guardrails.
+This is the short version; [README.md](./README.md) has the details for each
+feature.
 
-## Setup
+## Minimum setup (Chat mode)
 
-1. **Get API Key**
-   - Visit [Google AI Studio](https://aistudio.google.com/apikey)
-   - Create a new API key
-   - Copy the key
-
-2. **Set Environment Variable**
-   - Copy `.env.local.example` to `.env.local`
-   - Add your API key:
+1. **Get a Gemini API key** at [Google AI Studio](https://aistudio.google.com/apikey).
+2. **Create `.env.local`** from the example and add the key:
+   ```bash
+   cp .env.local.example .env.local
+   ```
    ```bash
    GOOGLE_GENAI_API_KEY=your_api_key_here
    ```
-
-3. **Install Dependencies**
+3. **Install and run:**
    ```bash
    npm install
-   ```
-
-4. **Run Development Server**
-   ```bash
    npm run dev
    ```
+4. **Open** [http://localhost:3000](http://localhost:3000). If port 3000 is
+   taken, run `npm run dev -- -p 3002` and use that port instead.
 
-5. **Open in Browser**
-   - Navigate to [http://localhost:3000](http://localhost:3000)
-   - Start chatting!
+That's enough for Chat mode, voice input, read-aloud, and the response cache.
+
+## Optional pieces
+
+| Feature | What you need | Without it |
+|---|---|---|
+| Document Q&A | One or both RAG backends running ([vector_embeddings](https://github.com/achyutasvm/vector_embeddings) on port 8000, [langchain_qdrant_vectordb](https://github.com/achyutasvm/langchain_qdrant_vectordb) on 8001) and `RAG_API_URL_PINECONE` / `RAG_API_URL_QDRANT` set | Document Q&A questions return an error |
+| Guardrails: Prompt Guard | `GROQ_API_KEY` ([console.groq.com](https://console.groq.com), free tier) | Jailbreak check is skipped |
+| Guardrails: Llama Guard | Ollama running with `llama-guard3:8b` (`brew install ollama`, `ollama serve`, `ollama pull llama-guard3:8b`) | Safety check is skipped |
+
+Reranking needs nothing extra in this app; it runs in the RAG backends.
 
 ## Features
 
-- Clean, modern chat interface with Tailwind CSS
-- Real-time message streaming
-- Smooth animations and auto-scrolling
-- Error handling
-- Loading indicators
-- Responsive design
+- Chat with selectable Gemini models, adjustable generation parameters, and streaming
+- Document Q&A over uploaded PDFs, with Pinecone or Qdrant and reranked, cited sources
+- Voice input (Gemini transcription) and read-aloud replies (Gemini TTS)
+- In-memory response cache, with a development-only viewer at `/dev/cache`
+- Guardrails: Prompt Guard (jailbreaks, prompt injection) and Llama Guard (unsafe content)
+- Thumbs up/down feedback, message editing, regenerate, and copy
 
-## Tech Stack
+## Tech stack
 
-- **Frontend**: Next.js 15 + React 19 + TypeScript + Tailwind CSS
-- **AI Model**: Google Gemini 3.5 Flash
-- **SDK**: @google/genai
+- **Frontend:** Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS 4
+- **AI models:** Google Gemini via `@google/genai` (chat, transcription, TTS);
+  Meta Prompt Guard 2 on Groq and Llama Guard 3 on Ollama (guardrails)
+- **RAG backends:** Python FastAPI + LangChain, in separate repos
 
-## Project Structure
+## Project structure
 
-- `app/page.tsx` - Home page
-- `app/components/Chat.tsx` - Chat UI component
-- `app/api/chat/route.ts` - Chat API endpoint
-- `.env.local` - Environment variables (create from `.env.local.example`)
+- `app/page.tsx` — home page
+- `app/components/Chat.tsx` — chat UI
+- `app/api/` — server routes: `chat`, `rag-chat`, `rag-ingest`, `transcribe`, `tts`, `feedback`, `cache`
+- `app/utils/` — `guardrails.ts`, `responseCache.ts`
+- `.env.local` — environment variables (create from `.env.local.example`)
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces connect and
+[MODELS.md](./MODELS.md) for which model does what.
