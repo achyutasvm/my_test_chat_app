@@ -15,13 +15,7 @@ interface Source {
   rerank_score?: number | null;
 }
 
-type VectorStore = "pinecone" | "qdrant";
-
-function resolveRagApiUrl(vectorStore: VectorStore): string | undefined {
-  return vectorStore === "qdrant"
-    ? process.env.RAG_API_URL_QDRANT
-    : process.env.RAG_API_URL_PINECONE;
-}
+import { parseRagBackend, resolveRagApiUrl } from "../../utils/ragBackends";
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,21 +25,12 @@ export async function POST(request: NextRequest) {
       rerank,
       guardrails,
     } = await request.json();
-    const vectorStore: VectorStore =
-      rawVectorStore === "qdrant" ? "qdrant" : "pinecone";
-
-    const ragApiUrl = resolveRagApiUrl(vectorStore);
-    if (!ragApiUrl) {
-      return NextResponse.json(
-        {
-          error:
-            vectorStore === "qdrant"
-              ? "RAG_API_URL_QDRANT not configured"
-              : "RAG_API_URL_PINECONE not configured",
-        },
-        { status: 500 },
-      );
+    const backend = parseRagBackend(rawVectorStore);
+    const resolved = resolveRagApiUrl(backend);
+    if ("error" in resolved) {
+      return NextResponse.json({ error: resolved.error }, { status: 500 });
     }
+    const ragApiUrl = resolved.url;
 
     const guarded = guardrails !== false && guardrailsConfigured();
     let guardStatus = guarded ? "on" : "off";

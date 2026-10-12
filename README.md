@@ -5,14 +5,19 @@ cache, and safety guardrails:
 
 - **Chat** — general-purpose chat via Google Gemini (`@google/genai`), with
   adjustable model/temperature/top-p/etc. and streaming responses.
-- **Document Q&A** — retrieval-augmented Q&A over PDFs, backed by a companion
-  LangChain FastAPI service. Two interchangeable backends are supported —
-  [vector_embeddings](https://github.com/achyutasvm/vector_embeddings) (Pinecone)
-  and [langchain_qdrant_vectordb](https://github.com/achyutasvm/langchain_qdrant_vectordb)
-  (Qdrant, hybrid dense+sparse retrieval) — chosen per-upload via a selector
-  next to the **Upload PDF** button. Retrieved chunks are **reranked** with a
-  reranker model before answering. Answers cite source pages in rank order,
-  and you can upload new PDFs to the knowledge base directly from the UI.
+- **Document Q&A** — retrieval-augmented Q&A over PDFs, backed by companion
+  FastAPI services. A **Vector DB / Knowledge graph** switch picks how
+  questions are answered:
+  - **Vector DB**: [vector_embeddings](https://github.com/achyutasvm/vector_embeddings)
+    (Pinecone) or [langchain_qdrant_vectordb](https://github.com/achyutasvm/langchain_qdrant_vectordb)
+    (Qdrant, keyword + vector hybrid search), chosen with a selector. Retrieved
+    chunks are **reranked** with a reranker model before answering.
+  - **Knowledge graph**: [lightrag_service](https://github.com/achyutasvm/lightrag_service), a [LightRAG](https://github.com/HKUDS/LightRAG)
+    service that builds a graph of entities and relationships from the PDFs
+    and answers in LightRAG's **hybrid** mode.
+
+  Answers cite source pages, and you can upload new PDFs to the selected
+  backend directly from the UI.
 
 Both modes support **voice input** (speech-to-text) and **read-aloud replies**
 (text-to-speech) using Gemini models, and are protected by **guardrails**:
@@ -37,15 +42,15 @@ Fill in `.env.local`:
 GOOGLE_GENAI_API_KEY=your_gemini_api_key   # required for Chat mode and voice features
 RAG_API_URL_PINECONE=http://localhost:8000 # required to use the Pinecone option
 RAG_API_URL_QDRANT=http://localhost:8001   # required to use the Qdrant option
+RAG_API_URL_LIGHTRAG=http://localhost:8002 # required to use Knowledge graph
 GROQ_API_KEY=your_groq_api_key             # guardrails: Prompt Guard
 ```
 
 - Get a Gemini key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
   Chat mode needs billing/credits set up on that project — a valid key alone
   isn't enough if the project's prepay balance is at $0.
-- You only need to run (and set the URL for) the backend(s) whose option you
-  want to use in the vector store selector. If a URL is unset, that option
-  will error when selected.
+- You only need to run (and set the URL for) the backend(s) you want to use.
+  If a URL is unset, that option will error when selected.
 - Guardrails also need [Ollama](https://ollama.com) running locally with the
   Llama Guard model; see [Guardrails](#guardrails). Without it (or without
   `GROQ_API_KEY`), the app still works but skips that guard.
@@ -63,10 +68,15 @@ cd path/to/vector_embeddings
 source .venv/bin/activate
 uvicorn app.server:app --reload --port 8000
 
-# Terminal 3 — Ollama, for the Llama Guard guardrail
+# Terminal 3 — LightRAG knowledge-graph backend (lightrag_service), optional
+cd path/to/lightrag_service
+source .venv/bin/activate
+uvicorn app.server:app --port 8002
+
+# Terminal 4 — Ollama, for the Llama Guard guardrail
 ollama serve        # or once: brew services start ollama
 
-# Terminal 4 — this app
+# Terminal 5 — this app
 npm run dev
 ```
 
@@ -75,27 +85,36 @@ Open [http://localhost:3000](http://localhost:3000), then switch between
 
 ## Document Q&A mode
 
-- A **Pinecone / Qdrant** selector next to the upload control picks which
-  backend a PDF is ingested into. Questions are sent to whichever backend was
-  last selected, so switch the selector to match wherever your PDFs actually
-  live before asking.
+- The **Vector DB / Knowledge graph** switch picks the backend. With Vector
+  DB, a **Pinecone / Qdrant** selector picks the vector store and a
+  **Rerank** checkbox appears; with Knowledge graph, questions go to LightRAG
+  in hybrid mode (see [Knowledge graph (LightRAG)](#knowledge-graph-lightrag)).
+- **Upload PDF** ingests into whichever backend is selected, and questions go
+  to it too, so select the backend where your PDFs actually live before
+  asking. Each backend has its own separate copy of the documents.
 - Ask questions about whatever PDFs have been ingested into the selected
   index. Responses end with a sources line listing the cited pages in rank
   order (most relevant first), e.g.
   `Sources, reranked: p. 32 (0.537), p. 50 (0.399, ×2), p. 27 (0.310, ×2)`.
   The number is the reranker's relevance score, and `×2` means two chunks came
   from that page. With reranking off it reads
-  `Sources, vector search order: p. 27, p. 50, ...`.
+  `Sources, vector search order: p. 27, p. 50, ...`. With Knowledge graph it
+  reads `Sources, knowledge graph (hybrid): p. 9, p. 11, ...`, listing only
+  the pages the answer cites.
 - A **Rerank** checkbox (on by default) controls reranking for each question;
   see [Reranking](#reranking).
 - **Upload PDF** (visible only in this mode) sends the file and the selected
-  `vector_store` to `/api/rag-ingest`, which proxies to that backend's
-  `POST /ingest` — the file is chunked, embedded, and upserted, and becomes
-  queryable immediately.
+  backend to `/api/rag-ingest`, which proxies to that backend's
+  `POST /ingest`. For Pinecone and Qdrant the file is chunked, embedded, and
+  upserted, and becomes queryable immediately. For Knowledge graph, building
+  the graph takes minutes, so it runs in the background and the header shows
+  progress ("Building knowledge graph from …: 34 of 80 pages done…") until
+  it finishes.
 - If uploads or questions fail with a fetch/connection error, the
   corresponding FastAPI backend likely isn't running — check
-  `curl http://localhost:8000/health` (Pinecone) or
-  `curl http://localhost:8001/health` (Qdrant).
+  `curl http://localhost:8000/health` (Pinecone),
+  `curl http://localhost:8001/health` (Qdrant), or
+  `curl http://localhost:8002/health` (LightRAG).
 
 ## Reranking
 
@@ -127,6 +146,51 @@ Questions that show the difference well, on the Apple 10-K:
 
 Simple lookups ("Where is Apple headquartered?") look the same either way,
 because the right chunk is already first.
+
+## Knowledge graph (LightRAG)
+
+Document Q&A → **Knowledge graph** sends questions to
+[lightrag_service](https://github.com/achyutasvm/lightrag_service) (port 8002), which uses [LightRAG](https://github.com/HKUDS/LightRAG). See
+that service's README for setup and details.
+
+**How it differs from Vector DB.** When a PDF is ingested, `gpt-4o-mini`
+reads every chunk and extracts entities (companies, people, products,
+figures, ...) and the relationships between them into a knowledge graph. The
+Apple 10-K produced about 690 entities and 840 relationships. Questions are
+then answered in LightRAG's **hybrid** mode:
+
+- **Local**: specific terms in the question are matched to entities, then to
+  their neighbours in the graph and the text they came from.
+- **Global**: broader themes in the question are matched to relationships
+  across the whole graph.
+
+LightRAG's "hybrid" is graph retrieval at two levels. It isn't the keyword +
+vector hybrid search that the Qdrant backend does.
+
+**When to use which.** On the Apple 10-K, both answer specific lookups (R&D
+spend, CEO) correctly, and Vector DB is faster (about 5s vs 6–8s).
+Knowledge graph does better on questions that connect ideas across the
+document. For "How do Apple's supply chain risks relate to its international
+operations?" it pulled context from about 10 pages and cited 5, where
+vector search used 3, taking more than twice as long (about 14s). Knowledge graph also uses the earlier
+conversation, so follow-ups like "and how does that compare with the year
+before?" work.
+
+**Things to know.**
+
+- **Ingestion is slow and uses OpenAI.** About 10 minutes and one LLM call
+  per chunk for an 80-page PDF, costing cents with `gpt-4o-mini`. Uploads run
+  in the background with progress shown in the header. Pages already in the
+  graph are skipped and reported as "already in the graph".
+- **Citations are pages.** LightRAG's answers cite reference numbers, which
+  the service rewrites as page numbers (`(p. 11, p. 49)`). The sources line
+  lists only the pages the answer cites, at most five.
+- **Rerank doesn't apply** to Knowledge graph and is hidden while it's
+  selected.
+- **Graph quality depends on extraction.** Some entities that should be one
+  node aren't merged (for example "Apple Inc." and "The Company"), and the
+  extraction LLM occasionally returns malformed relationships, which are
+  skipped.
 
 ## Guardrails
 
@@ -268,7 +332,8 @@ Gemini again.
 ## Project structure
 
 - `app/components/Chat.tsx` — the chat UI, including the mode toggle, vector
-  store selector, Rerank and Guardrails toggles, upload control, mic and
+  store selector, Vector DB / Knowledge graph switch, Rerank and Guardrails
+  toggles, LightRAG ingest progress, upload control, mic and
   read-aloud buttons, Cached label, ranked sources line, and blocked-message
   notices.
 - `app/api/chat/route.ts` — Gemini bridge for Chat mode, with guardrails and
@@ -276,7 +341,9 @@ Gemini again.
 - `app/api/rag-chat/route.ts` — proxies Document Q&A questions (and the
   rerank flag) to the selected backend's `/chat` endpoint, with guardrails.
 - `app/api/rag-ingest/route.ts` — proxies PDF uploads to the selected
-  backend's `/ingest` endpoint.
+  backend's `/ingest` endpoint, and (`GET`) LightRAG ingest progress.
+- `app/utils/ragBackends.ts` — the Document Q&A backends (Pinecone, Qdrant,
+  LightRAG) and their URL settings.
 - `app/api/feedback/route.ts` — logs thumbs up/down feedback to a local CSV.
 - `app/api/transcribe/route.ts` — speech-to-text: transcribes recorded audio
   with Gemini.
@@ -295,3 +362,5 @@ Gemini again.
   Pinecone RAG backend.
 - [langchain_qdrant_vectordb](https://github.com/achyutasvm/langchain_qdrant_vectordb) —
   the Qdrant RAG backend.
+- [lightrag_service](https://github.com/achyutasvm/lightrag_service) — the LightRAG knowledge-graph backend.
+- [LightRAG](https://github.com/HKUDS/LightRAG) — the graph-based RAG library.

@@ -80,10 +80,10 @@ interface RagSource {
 }
 
 // Sources arrive in rank order (reranker order when reranking ran, vector
-// search order otherwise). Keep that order, merge chunks from the same page
+// search order otherwise, or LightRAG's context order for the knowledge graph). Keep that order, merge chunks from the same page
 // into one entry (keeping its best-ranked score), and show the score when
 // there is one, e.g. "p. 32 (0.537), p. 50 ×2, p. 27".
-function formatSources(sources: RagSource[]): string | null {
+function formatSources(sources: RagSource[], graph = false): string | null {
   const pages: { page: number; score: number | null; count: number }[] = [];
   for (const s of sources) {
     if (s.page == null) continue;
@@ -101,11 +101,19 @@ function formatSources(sources: RagSource[]): string | null {
     ].filter(Boolean);
     return details.length ? `p. ${page} (${details.join(", ")})` : `p. ${page}`;
   });
-  return `${reranked ? "Sources, reranked" : "Sources, vector search order"}: ${labels.join(", ")}`;
+  const label = graph
+    ? "Sources, knowledge graph (hybrid)"
+    : reranked
+      ? "Sources, reranked"
+      : "Sources, vector search order";
+  return `${label}: ${labels.join(", ")}`;
 }
 
 type ChatMode = "chat" | "rag";
 type VectorStore = "pinecone" | "qdrant";
+// Document Q&A retrieval: a vector database (Pinecone/Qdrant) or the LightRAG
+// knowledge graph.
+type Retrieval = "vector" | "graph";
 
 const VECTOR_STORES: { id: VectorStore; label: string }[] = [
   { id: "pinecone", label: "Pinecone" },
@@ -133,6 +141,10 @@ export default function Chat() {
   const [mode, setMode] = useState<ChatMode>("chat");
   const [vectorStore, setVectorStore] = useState<VectorStore>("pinecone");
   const [rerank, setRerank] = useState(true);
+  const [retrieval, setRetrieval] = useState<Retrieval>("vector");
+  // Backend that Document Q&A questions and uploads go to.
+  const ragBackend = retrieval === "graph" ? "lightrag" : vectorStore;
+  const ingestPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [guardrails, setGuardrails] = useState(true);
   const [model, setModel] = useState(AVAILABLE_MODELS[0].id);
   const [modelParams, setModelParams] =
@@ -140,7 +152,7 @@ export default function Chat() {
   const [paramsOpen, setParamsOpen] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{
-    kind: "success" | "error";
+    kind: "success" | "error" | "progress";
     message: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,7 +199,7 @@ export default function Chat() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("vector_store", vectorStore);
+      formData.append("vector_store", ragBackend);
 
       const response = await fetch("/api/rag-ingest", {
         method: "POST",
@@ -198,6 +210,16 @@ export default function Chat() {
 
       if (!response.ok) {
         throw new Error(data?.error || "Upload failed");
+      }
+
+      if (data.status === "processing" && data.track_id) {
+        // LightRAG builds the knowledge graph in the background.
+        setUploadStatus({
+          kind: "progress",
+          message: `Building knowledge graph from "${data.filename}" (${data.pages} pages)...`,
+        });
+        pollIngest(data.track_id, data.filename, data.pages);
+        return;
       }
 
       const storeLabel =
@@ -215,6 +237,54 @@ export default function Chat() {
       setUploading(false);
     }
   };
+
+  // Polls a background LightRAG ingest until every page is processed or failed.
+  const pollIngest = (trackId: string, filename: string, pages: number) => {
+    if (ingestPollRef.current) clearInterval(ingestPollRef.current);
+    const poll = async () => {
+      try {
+        const response = await fetch(
+          `/api/rag-ingest?vector_store=lightrag&track_id=${encodeURIComponent(trackId)}`,
+        );
+        const data: { counts?: Record<string, number>; done?: boolean } =
+          await response.json();
+        if (!response.ok || !data.counts) return;
+        const processed = data.counts.processed ?? 0;
+        const failed = data.counts.failed ?? 0;
+        const duplicate = data.counts.duplicate ?? 0;
+        if (data.done) {
+          if (ingestPollRef.current) clearInterval(ingestPollRef.current);
+          ingestPollRef.current = null;
+          const details = [
+            `${processed} of ${pages} pages added`,
+            duplicate ? `${duplicate} already in the graph` : null,
+            failed ? `${failed} failed` : null,
+          ]
+            .filter(Boolean)
+            .join(", ");
+          setUploadStatus({
+            kind: failed ? "error" : "success",
+            message: `Knowledge graph updated from "${filename}": ${details}.`,
+          });
+        } else {
+          setUploadStatus({
+            kind: "progress",
+            message: `Building knowledge graph from "${filename}": ${processed + failed + duplicate} of ${pages} pages done...`,
+          });
+        }
+      } catch {
+        // transient network error; try again on the next tick
+      }
+    };
+    ingestPollRef.current = setInterval(poll, 5000);
+    poll();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (ingestPollRef.current) clearInterval(ingestPollRef.current);
+    };
+  }, []);
 
   // Marks the user message as excluded from future requests and adds an
   // assistant message explaining what was blocked.
@@ -250,7 +320,7 @@ export default function Chat() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: toApiMessages(apiMessages),
-        vectorStore,
+        vectorStore: ragBackend,
         rerank,
         guardrails,
       }),
@@ -275,7 +345,10 @@ export default function Chat() {
 
     const data: { text: string; sources: RagSource[] } = await response.json();
 
-    const sourcesLine = formatSources(data.sources ?? []);
+    const sourcesLine = formatSources(
+      data.sources ?? [],
+      ragBackend === "lightrag",
+    );
     const content = sourcesLine ? `${data.text}\n\n${sourcesLine}` : data.text;
 
     const assistantMessage: Message = {
@@ -851,32 +924,72 @@ export default function Chat() {
               )}
               {mode === "rag" && (
                 <>
-                  <select
-                    value={vectorStore}
-                    onChange={(e) =>
-                      setVectorStore(e.target.value as VectorStore)
-                    }
-                    title="Vector store used for uploads and questions"
-                    className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  <div
+                    role="group"
+                    aria-label="Retrieval"
+                    className="flex rounded-lg border border-gray-300 overflow-hidden text-sm whitespace-nowrap"
                   >
-                    {VECTOR_STORES.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.label}
-                      </option>
+                    {(
+                      [
+                        ["vector", "Vector DB"],
+                        ["graph", "Knowledge graph"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        onClick={() => setRetrieval(id)}
+                        title={
+                          id === "vector"
+                            ? "Search chunks in a vector database (Pinecone or Qdrant)"
+                            : "Query the LightRAG knowledge graph (hybrid: entities + relationships)"
+                        }
+                        className={`px-3 py-1.5 transition-colors ${
+                          retrieval === id
+                            ? "bg-gray-800 text-white"
+                            : "bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        {label}
+                      </button>
                     ))}
-                  </select>
-                  <label
-                    title="Retrieve extra candidate chunks and reorder them with a reranker model before answering"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 cursor-pointer select-none hover:bg-gray-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={rerank}
-                      onChange={(e) => setRerank(e.target.checked)}
-                      className="accent-blue-600"
-                    />
-                    Rerank
-                  </label>
+                  </div>
+                  {retrieval === "graph" ? (
+                    <span
+                      title="LightRAG hybrid mode: local (entities and their neighbours) + global (relationships and themes)"
+                      className="px-3 py-1.5 rounded-lg border border-gray-300 bg-gray-50 text-sm text-gray-700 whitespace-nowrap"
+                    >
+                      LightRAG · hybrid
+                    </span>
+                  ) : (
+                    <>
+                      <select
+                        value={vectorStore}
+                        onChange={(e) =>
+                          setVectorStore(e.target.value as VectorStore)
+                        }
+                        title="Vector store used for uploads and questions"
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        {VECTOR_STORES.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                      <label
+                        title="Retrieve extra candidate chunks and reorder them with a reranker model before answering"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 cursor-pointer select-none hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={rerank}
+                          onChange={(e) => setRerank(e.target.checked)}
+                          className="accent-blue-600"
+                        />
+                        Rerank
+                      </label>
+                    </>
+                  )}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -910,7 +1023,9 @@ export default function Chat() {
               className={`max-w-4xl mx-auto px-4 pb-3 text-sm ${
                 uploadStatus.kind === "success"
                   ? "text-green-700"
-                  : "text-red-600"
+                  : uploadStatus.kind === "progress"
+                    ? "text-gray-600"
+                    : "text-red-600"
               }`}
             >
               {uploadStatus.message}

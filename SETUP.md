@@ -29,7 +29,8 @@ That's enough for Chat mode, voice input, read-aloud, and the response cache.
 
 | Feature | What you need | Without it |
 |---|---|---|
-| Document Q&A | One or both RAG backends running ([vector_embeddings](https://github.com/achyutasvm/vector_embeddings) on port 8000, [langchain_qdrant_vectordb](https://github.com/achyutasvm/langchain_qdrant_vectordb) on 8001) and `RAG_API_URL_PINECONE` / `RAG_API_URL_QDRANT` set | Document Q&A questions return an error |
+| Document Q&A, Vector DB | One or both vector backends running ([vector_embeddings](https://github.com/achyutasvm/vector_embeddings) on port 8000, [langchain_qdrant_vectordb](https://github.com/achyutasvm/langchain_qdrant_vectordb) on 8001) and `RAG_API_URL_PINECONE` / `RAG_API_URL_QDRANT` set | Vector DB questions return an error |
+| Document Q&A, Knowledge graph | [lightrag_service](https://github.com/achyutasvm/lightrag_service) running on port 8002 with a PDF ingested, and `RAG_API_URL_LIGHTRAG` set | Knowledge graph questions return an error |
 | Guardrails: Prompt Guard | `GROQ_API_KEY` ([console.groq.com](https://console.groq.com), free tier) | Jailbreak check is skipped |
 | Guardrails: Llama Guard | Ollama running with `llama-guard3:8b` (`brew install ollama`, `ollama serve`, `ollama pull llama-guard3:8b`) | Safety check is skipped |
 
@@ -38,7 +39,7 @@ Reranking needs nothing extra in this app; it runs in the RAG backends.
 ## Features
 
 - Chat with selectable Gemini models, adjustable generation parameters, and streaming
-- Document Q&A over uploaded PDFs, with Pinecone or Qdrant and reranked, cited sources
+- Document Q&A over uploaded PDFs: vector search (Pinecone or Qdrant, reranked) or a LightRAG knowledge graph (hybrid mode), with cited pages
 - Voice input (Gemini transcription) and read-aloud replies (Gemini TTS)
 - In-memory response cache, with a development-only viewer at `/dev/cache`
 - Guardrails: Prompt Guard (jailbreaks, prompt injection) and Llama Guard (unsafe content)
@@ -49,7 +50,7 @@ Reranking needs nothing extra in this app; it runs in the RAG backends.
 - **Frontend:** Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS 4
 - **AI models:** Google Gemini via `@google/genai` (chat, transcription, TTS);
   Meta Prompt Guard 2 on Groq and Llama Guard 3 on Ollama (guardrails)
-- **RAG backends:** Python FastAPI + LangChain, in separate repos
+- **RAG backends:** Python FastAPI services in separate projects: LangChain with Pinecone or Qdrant, and LightRAG
 
 ## Project structure
 

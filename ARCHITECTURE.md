@@ -2,9 +2,9 @@
 
 A Next.js App Router app with one interactive client component (`Chat.tsx`)
 and several server-only route handlers. The route handlers call Google Gemini
-directly, call two external Python RAG services for Document Q&A, and run
-guardrail checks through Groq (Prompt Guard) and a local Ollama server (Llama
-Guard).
+directly, call three external Python services for Document Q&A (two vector
+databases and a LightRAG knowledge graph), and run guardrail checks through
+Groq (Prompt Guard) and a local Ollama server (Llama Guard).
 
 The editable Draw.io source of the system diagram is
 [ARCHITECTURE.drawio](./ARCHITECTURE.drawio). [MODELS.md](./MODELS.md) lists
@@ -36,6 +36,7 @@ flowchart LR
     Ollama["Ollama (local)<br/>Llama Guard 3"]
     Pine["vector_embeddings :8000<br/>Pinecone + reranker"]
     Qdr["langchain_qdrant_vectordb :8001<br/>Qdrant + reranker"]
+    Light["lightrag_service :8002<br/>LightRAG knowledge graph"]
   end
 
   UI --> Chat
@@ -50,6 +51,7 @@ flowchart LR
   Guard --> Ollama
   Rag --> Pine
   Rag --> Qdr
+  Rag --> Light
 ```
 
 ## Chat request with guardrails and cache
@@ -109,18 +111,30 @@ piece.
    and returns it. Regenerate sends `skipCache: true`.
 
 **Document Q&A** (`POST /api/rag-chat`)
-1. `Chat.tsx` sends the conversation, the selected vector store (Pinecone or
-   Qdrant), and the Rerank and Guardrails flags.
+1. `Chat.tsx` sends the conversation, the selected backend (`pinecone`,
+   `qdrant`, or `lightrag`, from the Vector DB / Knowledge graph switch), and
+   the Rerank and Guardrails flags. Backend URLs come from
+   `app/utils/ragBackends.ts`.
 2. The route runs the input guardrails, then forwards `{ messages, rerank }`
    to the selected backend's `POST /chat`.
-3. The backend retrieves 20 candidate chunks, reranks them, keeps the top
-   5 (Pinecone) or 8 (Qdrant), and generates an answer with OpenAI. It
-   returns the answer and the sources in rank order, with rerank scores.
+3. **Vector DB:** the backend retrieves 20 candidate chunks, reranks them,
+   keeps the top 5 (Pinecone) or 8 (Qdrant), and generates an answer with
+   OpenAI. It returns the answer and the sources in rank order, with rerank
+   scores.
+   **Knowledge graph:** LightRAG extracts keywords from the question, finds
+   matching entities (local) and relationships (global) in its graph, gathers
+   their source chunks, and generates an answer with OpenAI, using earlier
+   turns as conversation history. It returns the answer with page citations
+   and the cited pages as sources.
 4. The route runs the output guardrail and returns the answer. `Chat.tsx`
-   appends the ranked sources line. These answers aren't cached.
+   appends the sources line. These answers aren't cached.
 
 **PDF upload** (`POST /api/rag-ingest`): proxies the file to the selected
-backend's `POST /ingest`, which chunks, embeds, and upserts it.
+backend's `POST /ingest`. Pinecone and Qdrant chunk, embed, and upsert it
+before responding. LightRAG responds immediately with a `track_id` and builds
+the graph in the background (an LLM extraction call per chunk); `Chat.tsx`
+polls `GET /api/rag-ingest?vector_store=lightrag&track_id=...` every 5s to
+show progress.
 
 **Voice input** (`POST /api/transcribe`): the browser records with
 `MediaRecorder`; the route sends the audio to `gemini-3.6-flash` and returns
@@ -134,8 +148,8 @@ normal Chat or Document Q&A flow, guardrails included.
 
 - `app/components/Chat.tsx` is the only client component. All API keys stay
   in server-side route handlers.
-- Retrieval and reranking for Document Q&A happen in the Python backends,
-  not in this app. Guardrails and caching happen in this app.
+- Retrieval, reranking, and graph building for Document Q&A happen in the
+  Python backends, not in this app. Guardrails and caching happen in this app.
 - The response cache lives in the Next.js server's memory. It's cleared on
   restart and not shared between instances.
 - Guardrails fail open by default: if Groq or Ollama can't be reached, the
@@ -150,10 +164,11 @@ normal Chat or Document Q&A flow, guardrails included.
 - `app/components/ModelSettingsPanel.tsx` — generation parameters panel
 - `app/api/chat/route.ts` — Gemini chat, with guardrails and caching
 - `app/api/rag-chat/route.ts` — Document Q&A proxy, with guardrails
-- `app/api/rag-ingest/route.ts` — PDF upload proxy
+- `app/api/rag-ingest/route.ts` — PDF upload proxy and LightRAG ingest progress
 - `app/api/transcribe/route.ts` — speech-to-text
 - `app/api/tts/route.ts` — text-to-speech
 - `app/api/feedback/route.ts` — feedback logging to CSV
 - `app/api/cache/route.ts`, `app/dev/cache/` — development-only cache viewer
+- `app/utils/ragBackends.ts` — Document Q&A backend list and URL settings
 - `app/utils/guardrails.ts` — Prompt Guard and Llama Guard checks
 - `app/utils/responseCache.ts` — in-memory LRU cache
