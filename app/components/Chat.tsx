@@ -1151,7 +1151,7 @@ export default function Chat() {
                           Blocked, not sent to the model
                         </span>
                       )}
-                      <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 mt-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
                         {msg.role === "user" ? (
                           <>
                             <button
