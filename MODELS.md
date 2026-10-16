@@ -69,9 +69,10 @@ This app doesn't call any embedding model itself.
 
 ## Vector and graph stores
 
-Not models, but where the embeddings and the knowledge graph live. The
-Document Q&A header's **Vector DB / Knowledge graph** switch picks between
-them, with a Pinecone / Qdrant selector under Vector DB.
+Not models, but where the embeddings and the knowledge graph live. In
+Document Q&A mode, the sidebar's **Retrieval** switch (Vector DB / Knowledge
+graph) picks between them, with a **Vector store** selector (Pinecone /
+Qdrant) under Vector DB.
 
 | Store | Hosting | Index / collection | Search | Used by |
 |---|---|---|---|---|
@@ -87,8 +88,8 @@ document and splits it into chunks of about 1200 tokens.
 
 Reorder retrieved chunks by relevance before answer generation. Each backend
 retrieves 20 candidates, reranks them, and keeps the top 5 (Pinecone) or 8
-(Qdrant). The **Rerank** checkbox in Document Q&A turns this on or off for
-each question. See [Reranking](./README.md#reranking).
+(Qdrant). The **Rerank results** switch in the Document Q&A sidebar turns
+this on or off for each question. See [Reranking](./README.md#reranking).
 
 | Model | Provider | Scores | Used in | Configured in |
 |---|---|---|---|---|
@@ -96,12 +97,13 @@ each question. See [Reranking](./README.md#reranking).
 | `Xenova/ms-marco-MiniLM-L-12-v2` | fastembed cross-encoder, runs locally (~130 MB, downloaded on first use) | Raw logits, can be negative | Qdrant backend | same settings |
 
 The LightRAG backend doesn't rerank: its results come from graph retrieval,
-and the Rerank checkbox is hidden when Knowledge graph is selected.
+and the Rerank results switch is hidden when Knowledge graph is selected.
 
 ## Guardrails
 
 Safety classifiers that run in this app, in both modes, when the
-**Guardrails** toggle is on. See [Guardrails](./README.md#guardrails).
+**Guardrails** switch in the sidebar is on. On the Vercel deployment only
+Prompt Guard runs; Llama Guard needs a reachable Ollama. See [Guardrails](./README.md#guardrails).
 
 | Model | Provider | Checks | Output | Configured in |
 |---|---|---|---|---|

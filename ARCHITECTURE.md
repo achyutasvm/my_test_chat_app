@@ -144,6 +144,25 @@ normal Chat or Document Q&A flow, guardrails included.
 **Read-aloud** (`POST /api/tts`): sends a reply's text to
 `gemini-3.8-flash-tts` and returns WAV audio for the browser to play.
 
+## Deployment
+
+```mermaid
+flowchart LR
+  User["Browser"] --> Vercel["Vercel<br/>Next.js app (master branch)"]
+  Vercel --> Gemini["Google Gemini"]
+  Vercel --> Groq["Groq (Prompt Guard)"]
+  Vercel -->|"RAG_API_URL_* (public)"| Tunnels["Cloudflare quick tunnels"]
+  Tunnels --> Laptop["Laptop: RAG backends<br/>:8000 / :8001 / :8002"]
+```
+
+The Next.js app runs on Vercel and is redeployed on every push to `master`.
+The three RAG backends still run on a laptop and are reached through
+Cloudflare quick tunnels, whose URLs are set as the `RAG_API_URL_*`
+variables in Vercel. Ollama isn't reachable from Vercel, so Llama Guard is
+skipped there (fail-open). Locally, the same app talks to the backends and
+Ollama on `localhost`. Details and caveats are in
+[README.md](./README.md#deployment-vercel).
+
 ## Key boundaries
 
 - `app/components/Chat.tsx` is the only client component. All API keys stay
@@ -160,7 +179,8 @@ normal Chat or Document Q&A flow, guardrails included.
 
 - `app/page.tsx` — entry point for `/`
 - `app/layout.tsx` — root HTML shell and metadata
-- `app/components/Chat.tsx` — chat UI
+- `app/components/Chat.tsx` — chat UI and settings sidebar
+- `app/components/ModelSettingsPanel.tsx` — generation parameters panel
 - `app/components/ModelSettingsPanel.tsx` — generation parameters panel
 - `app/api/chat/route.ts` — Gemini chat, with guardrails and caching
 - `app/api/rag-chat/route.ts` — Document Q&A proxy, with guardrails

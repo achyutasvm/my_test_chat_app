@@ -22,6 +22,9 @@ feature.
    ```
 4. **Open** [http://localhost:3000](http://localhost:3000). If port 3000 is
    taken, run `npm run dev -- -p 3002` and use that port instead.
+5. **Pick your settings in the left sidebar:** mode (Chat / Document Q&A),
+   model, retrieval and vector store, Rerank, Guardrails, and PDF upload.
+   Generation parameters are in the right-hand panel in Chat mode.
 
 That's enough for Chat mode, voice input, read-aloud, and the response cache.
 
@@ -36,6 +39,16 @@ That's enough for Chat mode, voice input, read-aloud, and the response cache.
 
 Reranking needs nothing extra in this app; it runs in the RAG backends.
 
+## Live deployment
+
+Deployed on Vercel at
+[my-test-chat-app-t153.vercel.app](https://my-test-chat-app-t153.vercel.app);
+every push to `master` redeploys it. Environment variables are set in the
+Vercel project settings, and the `RAG_API_URL_*` values must be public URLs.
+On Vercel, Llama Guard is skipped and feedback isn't saved. See
+[Deployment](./README.md#deployment-vercel) for the full list and how the
+RAG backends are exposed.
+
 ## Features
 
 - Chat with selectable Gemini models, adjustable generation parameters, and streaming
@@ -44,6 +57,7 @@ Reranking needs nothing extra in this app; it runs in the RAG backends.
 - In-memory response cache, with a development-only viewer at `/dev/cache`
 - Guardrails: Prompt Guard (jailbreaks, prompt injection) and Llama Guard (unsafe content)
 - Thumbs up/down feedback, message editing, regenerate, and copy
+- All settings in a left sidebar, with the active model or backend shown in the header
 
 ## Tech stack
 
@@ -55,10 +69,12 @@ Reranking needs nothing extra in this app; it runs in the RAG backends.
 ## Project structure
 
 - `app/page.tsx` — home page
-- `app/components/Chat.tsx` — chat UI
+- `app/components/Chat.tsx` — chat UI and settings sidebar
+- `app/components/ModelSettingsPanel.tsx` — generation parameters panel
 - `app/api/` — server routes: `chat`, `rag-chat`, `rag-ingest`, `transcribe`, `tts`, `feedback`, `cache`
 - `app/utils/` — `guardrails.ts`, `responseCache.ts`
 - `.env.local` — environment variables (create from `.env.local.example`)
+- `demo/` — team demo deck and demo script
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces connect and
 [MODELS.md](./MODELS.md) for which model does what.

@@ -29,6 +29,10 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the architecture diagram and
 request flows, and [MODELS.md](./MODELS.md) for every model and vector store
 used and what each one is for.
 
+**Live:** [my-test-chat-app-t153.vercel.app](https://my-test-chat-app-t153.vercel.app)
+(see [Deployment](#deployment-vercel) for what works there). A team demo deck
+and script with tested questions are in [demo/](./demo/).
+
 ## Setup
 
 ```bash
@@ -80,15 +84,28 @@ ollama serve        # or once: brew services start ollama
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), then switch between
-**Chat** and **Document Q&A** using the toggle in the header.
+Open [http://localhost:3000](http://localhost:3000). If another project is
+already using port 3000, run `npm run dev -- -p 3002` instead.
+
+## Layout
+
+- **Left sidebar** holds every setting: **Mode** (Chat / Document Q&A), the
+  **Model** in Chat mode, or **Retrieval**, **Vector store**, **Rerank
+  results** and **Upload PDF** in Document Q&A mode, the **Guardrails**
+  switch, and the list of recent chats. Hide it with the panel icon next to
+  the app name and reopen it with ☰.
+- **Header** shows the chat title plus badges for the active model or
+  Document Q&A backend and, when guardrails are on, **Guarded**.
+- **Parameters panel** on the right (Chat mode only) has the generation
+  settings. Hide it with its panel icon and reopen it from the header.
 
 ## Document Q&A mode
 
-- The **Vector DB / Knowledge graph** switch picks the backend. With Vector
-  DB, a **Pinecone / Qdrant** selector picks the vector store and a
-  **Rerank** checkbox appears; with Knowledge graph, questions go to LightRAG
-  in hybrid mode (see [Knowledge graph (LightRAG)](#knowledge-graph-lightrag)).
+- The sidebar's **Retrieval** switch (**Vector DB / Knowledge graph**) picks
+  the backend. With Vector DB, the **Vector store** selector picks Pinecone or
+  Qdrant and a **Rerank results** switch appears; with Knowledge graph,
+  questions go to LightRAG in hybrid mode (see
+  [Knowledge graph (LightRAG)](#knowledge-graph-lightrag)).
 - **Upload PDF** ingests into whichever backend is selected, and questions go
   to it too, so select the backend where your PDFs actually live before
   asking. Each backend has its own separate copy of the documents.
@@ -96,18 +113,20 @@ Open [http://localhost:3000](http://localhost:3000), then switch between
   index. Responses end with a sources line listing the cited pages in rank
   order (most relevant first), e.g.
   `Sources, reranked: p. 32 (0.537), p. 50 (0.399, ×2), p. 27 (0.310, ×2)`.
-  The number is the reranker's relevance score, and `×2` means two chunks came
+  The number is the reranker's relevance score (0 to 1 for Pinecone; a raw
+  score that can be negative for Qdrant, e.g. `p. 7 (8.07)`), and `×2` means two chunks came
   from that page. With reranking off it reads
   `Sources, vector search order: p. 27, p. 50, ...`. With Knowledge graph it
   reads `Sources, knowledge graph (hybrid): p. 9, p. 11, ...`, listing only
   the pages the answer cites.
-- A **Rerank** checkbox (on by default) controls reranking for each question;
-  see [Reranking](#reranking).
-- **Upload PDF** (visible only in this mode) sends the file and the selected
+- The **Rerank results** switch (on by default) controls reranking for each
+  question; see [Reranking](#reranking).
+- **Upload PDF to …** (in the sidebar, Document Q&A only; the label names
+  the selected backend) sends the file and the selected
   backend to `/api/rag-ingest`, which proxies to that backend's
   `POST /ingest`. For Pinecone and Qdrant the file is chunked, embedded, and
   upserted, and becomes queryable immediately. For Knowledge graph, building
-  the graph takes minutes, so it runs in the background and the header shows
+  the graph takes minutes, so it runs in the background and the sidebar shows
   progress ("Building knowledge graph from …: 34 of 80 pages done…") until
   it finishes.
 - If uploads or questions fail with a fetch/connection error, the
@@ -119,8 +138,8 @@ Open [http://localhost:3000](http://localhost:3000), then switch between
 ## Reranking
 
 Document Q&A only. Vector search returns chunks that *sound* like the
-question, which isn't always the chunk that *answers* it. With **Rerank**
-checked, the backend retrieves 20 candidate chunks instead of 5–8, scores
+question, which isn't always the chunk that *answers* it. With **Rerank
+results** on, the backend retrieves 20 candidate chunks instead of 5–8, scores
 each one against the question with a reranker model, and keeps only the best
 for the answer.
 
@@ -130,9 +149,15 @@ for the answer.
 | Qdrant (`langchain_qdrant_vectordb`) | `Xenova/ms-marco-MiniLM-L-12-v2` | Locally via `fastembed`, no key |
 
 Reranking happens in the backends: this app only passes `rerank: true/false`
-from the checkbox through `/api/rag-chat` to the backend's `POST /chat`. If
-the checkbox value isn't sent, the backend's `RERANK_ENABLED` setting
-applies. See each backend's README for details and settings.
+from the switch through `/api/rag-chat` to the backend's `POST /chat`. If
+the value isn't sent, the backend's `RERANK_ENABLED` setting applies. See
+each backend's README for details and settings.
+
+If Qdrant answers but its sources line never shows scores with reranking on,
+its reranker model failed to download, and the backend quietly falls back to
+hybrid search order (the error is in its log). A Hugging Face download bug
+("Byte range not sequential") causes this; download the model once with
+`HF_HUB_DISABLE_XET=1` set, then retry.
 
 Questions that show the difference well, on the Apple 10-K:
 - "How much did Apple spend on research and development?" Reranking moves
@@ -143,6 +168,10 @@ Questions that show the difference well, on the Apple 10-K:
   foreign suppliers.
 - "What was Apple's effective tax rate?" A counterexample: reranking puts an
   auditor's note above the passage that states the rate.
+
+- "How many full-time employees did Apple have?" Same answer either way, but
+  the scores show the reranker's confidence: page 7 scores 0.987 and the next
+  chunk only 0.206 (Pinecone), or 8.07 vs −1.66 (Qdrant).
 
 Simple lookups ("Where is Apple headquartered?") look the same either way,
 because the right chunk is already first.
@@ -180,13 +209,13 @@ before?" work.
 
 - **Ingestion is slow and uses OpenAI.** About 10 minutes and one LLM call
   per chunk for an 80-page PDF, costing cents with `gpt-4o-mini`. Uploads run
-  in the background with progress shown in the header. Pages already in the
+  in the background with progress shown in the sidebar. Pages already in the
   graph are skipped and reported as "already in the graph".
 - **Citations are pages.** LightRAG's answers cite reference numbers, which
   the service rewrites as page numbers (`(p. 11, p. 49)`). The sources line
   lists only the pages the answer cites, at most five.
-- **Rerank doesn't apply** to Knowledge graph and is hidden while it's
-  selected.
+- **Rerank doesn't apply** to Knowledge graph, so the switch is hidden while
+  it's selected.
 - **Graph quality depends on extraction.** Some entities that should be one
   node aren't merged (for example "Apple Inc." and "The Company"), and the
   extraction LLM occasionally returns malformed relationships, which are
@@ -194,7 +223,8 @@ before?" work.
 
 ## Guardrails
 
-Both modes, on by default, with a **Guardrails** toggle in the header.
+Both modes, on by default, with a **Guardrails** switch in the sidebar. The
+header shows a **Guarded** badge while it's on.
 
 | Check | Model | Runs | Catches |
 |---|---|---|---|
@@ -320,7 +350,7 @@ Gemini again.
 
 - Replies served from the cache show a grey **Cached** label.
 - `/api/chat` responses carry an `X-Cache: HIT` or `X-Cache: MISS` header.
-- In development, the sidebar has a **Response cache** link to
+- In development, the sidebar footer has a **Response cache** link to
   [`/dev/cache`](http://localhost:3000/dev/cache). The page lists every entry
   with its prompt, model, message count, hit count, age, and time to expiry.
   You can expand the cached response, filter entries, delete single entries,
@@ -331,11 +361,14 @@ Gemini again.
 
 ## Project structure
 
-- `app/components/Chat.tsx` — the chat UI, including the mode toggle, vector
-  store selector, Vector DB / Knowledge graph switch, Rerank and Guardrails
-  toggles, LightRAG ingest progress, upload control, mic and
-  read-aloud buttons, Cached label, ranked sources line, and blocked-message
-  notices.
+- `app/components/Chat.tsx` — the chat UI: the settings sidebar (mode,
+  model, retrieval, vector store, Rerank and Guardrails switches, PDF upload
+  and LightRAG ingest progress, recent chats), the header badges, messages
+  with their action buttons (copy, edit, feedback, read aloud, regenerate),
+  the Cached label, ranked sources line, blocked-message notices, and the
+  input bar with the mic.
+- `app/components/ModelSettingsPanel.tsx` — the Parameters panel.
+- `demo/` — team demo deck and demo script with tested questions.
 - `app/api/chat/route.ts` — Gemini bridge for Chat mode, with guardrails and
   response caching.
 - `app/api/rag-chat/route.ts` — proxies Document Q&A questions (and the
@@ -354,6 +387,62 @@ Gemini again.
 - `app/api/cache/route.ts` — development-only API to list and clear cache
   entries.
 - `app/dev/cache/` — development-only cache viewer page.
+
+## Deployment (Vercel)
+
+The app is deployed on Vercel from the `master` branch of
+[achyutasvm/my_test_chat_app](https://github.com/achyutasvm/my_test_chat_app):
+every push to `master` deploys to
+[my-test-chat-app-t153.vercel.app](https://my-test-chat-app-t153.vercel.app).
+(`my-test-chat-app.vercel.app`, without `-t153`, is a different project.)
+
+**Environment variables** are set in the Vercel dashboard (project →
+Settings → Environment Variables, for Production and Preview), not from
+`.env.local`. Changing one only takes effect after a redeploy (Deployments →
+⋯ → Redeploy).
+
+| Variable | Value on Vercel |
+|---|---|
+| `GOOGLE_GENAI_API_KEY`, `GROQ_API_KEY`, `HF_TOKEN` | Same as `.env.local` |
+| `RAG_API_URL_PINECONE`, `RAG_API_URL_QDRANT`, `RAG_API_URL_LIGHTRAG` | A **public** URL for each backend. `localhost` doesn't work: Vercel can't reach your machine. |
+
+**What works on Vercel**
+
+| Feature | On Vercel |
+|---|---|
+| Chat, voice input, read-aloud | Works |
+| Document Q&A | Works only while the backends are reachable at the URLs above |
+| Guardrails: Prompt Guard | Works (Groq) |
+| Guardrails: Llama Guard | Skipped (fails open): it needs Ollama, which isn't on Vercel. Point `OLLAMA_URL` at a hosted Ollama to enable it. |
+| Response cache | Works per server instance; instances don't share it and restart often, so hits are rarer than locally |
+| Feedback CSV | Not kept: Vercel's filesystem isn't persistent |
+| `/dev/cache` viewer | 404, as in any production build |
+
+**Running the RAG backends for Vercel from a laptop.** The backends currently
+run locally and are exposed with Cloudflare quick tunnels, one per backend:
+
+```bash
+brew install cloudflared
+cloudflared tunnel --protocol http2 --url http://localhost:8000   # Pinecone
+cloudflared tunnel --protocol http2 --url http://localhost:8001   # Qdrant
+cloudflared tunnel --protocol http2 --url http://localhost:8002   # LightRAG
+```
+
+Each prints a `https://….trycloudflare.com` URL; set it as the matching
+`RAG_API_URL_*` on Vercel and redeploy. Things to know:
+
+- `--protocol http2` is needed on networks that block QUIC (UDP); without it
+  the tunnel URL returns Cloudflare error 530.
+- Quick-tunnel URLs **change every time a tunnel restarts**, and tunnels stop
+  working after the laptop sleeps or loses network ("Tunnel not found" in the
+  log). Restart them, update the three variables, and redeploy.
+- Document Q&A on Vercel is down whenever the laptop is off. For a permanent
+  setup, host the backends (e.g. Render, Railway, Fly.io) or use a named
+  Cloudflare tunnel on your own domain.
+
+**Gemini rate limit.** On the free tier, Gemini 3 Flash allows 5 requests per
+minute. Beyond that Chat returns "quota exceeded"; wait a minute, switch to
+Gemini 3.6 Flash, or enable billing on the key's project.
 
 ## Learn More
 

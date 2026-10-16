@@ -11,7 +11,8 @@ actually came back. The rest are suggestions, so try them once before the demo.
 - [ ] Laptop plugged in, sleep disabled. The Document Q&A services and tunnels run on it.
 - [ ] RAG services running on ports 8000 (Pinecone), 8001 (Qdrant) and 8002 (LightRAG).
 - [ ] `ollama serve` running. Llama Guard needs it.
-- [ ] Qdrant Cloud cluster resumed at cloud.qdrant.io. It was suspended on 16 Oct.
+- [ ] Qdrant Cloud cluster active at cloud.qdrant.io. Free clusters get suspended when idle, so check it the day before.
+- [ ] Tunnels running and their URLs set in Vercel. Quick-tunnel URLs change on every restart and die when the laptop sleeps, so see "Refreshing the tunnels" at the end.
 - [ ] Open both: **https://my-test-chat-app-t153.vercel.app** (live) and **http://localhost:3002** (backup).
 - [ ] Use the **local app for guardrail demos**. Llama Guard runs in Ollama on the laptop, so on Vercel only Prompt Guard is active.
 
@@ -134,11 +135,20 @@ More LightRAG questions to try:
 - `What connects Apple's international operations to its financial risks?`
 - `Summarize the main themes of this report.`
 
-### Pinecone vs. Qdrant (optional, only if Qdrant is back up)
-Ask `What was Apple's total net sales in fiscal 2025?` with each vector store.
-Both should agree. The difference is under the hood: Qdrant uses **hybrid
+### Pinecone vs. Qdrant
+Ask `How many full-time employees did Apple have?` with **Vector store =
+Pinecone**, then **Qdrant**, with Rerank on.
+
+| | Answer | Sources line |
+|---|---|---|
+| **Pinecone** | About 166,000, page 7 | `p. 7 (0.987), p. 7 (0.206), p. 32 (0.160)…` |
+| **Qdrant** | About 166,000, page 7 | `p. 7 (8.07), p. 7 (-1.66), p. 48 (-4.36)…` |
+
+**What to say:** same answer, two different engines. Qdrant uses **hybrid
 search** (meaning plus keywords), which helps with exact terms like product
-names or numbers.
+names or numbers. The rerankers score differently: Pinecone's gives 0 to 1,
+Qdrant's gives raw scores where only the order matters. Both put page 7 far
+ahead of everything else.
 
 ---
 
@@ -177,6 +187,27 @@ again. Do it in **Chat** first, then repeat a couple in **Document Q&A**.
 |---|---|
 | "quota exceeded" / "high demand" in Chat | Wait 60 s, or switch to **Gemini 3.6 Flash** |
 | Document Q&A error on the live site | Switch to **localhost:3002** |
-| Qdrant error | Use Pinecone; Qdrant Cloud is suspended |
+| Qdrant error | Check the cluster isn't suspended at cloud.qdrant.io; meanwhile use Pinecone |
+| Qdrant sources show no scores with Rerank on | Its reranker model didn't load; see README "Reranking". Use Pinecone for the rerank demo |
+| Document Q&A on the live site says "fetch failed" | Tunnels have expired; see below |
 | Guardrail didn't block on the live site | Expected for Llama Guard there; use localhost:3002 |
 | Everything slow on first guardrail check | Llama Guard is loading (~5 GB) the first time; ask once before the demo to warm it up |
+
+---
+
+## Refreshing the tunnels
+
+Run this whenever Document Q&A on the live site says "fetch failed" or "not
+configured", and always on demo morning.
+
+1. Start the three backends (README, "Running everything together").
+2. Start one tunnel per backend, each in its own terminal:
+   ```bash
+   cloudflared tunnel --protocol http2 --url http://localhost:8000   # Pinecone
+   cloudflared tunnel --protocol http2 --url http://localhost:8001   # Qdrant
+   cloudflared tunnel --protocol http2 --url http://localhost:8002   # LightRAG
+   ```
+3. Copy each `https://….trycloudflare.com` URL into Vercel as
+   `RAG_API_URL_PINECONE`, `RAG_API_URL_QDRANT` and `RAG_API_URL_LIGHTRAG`
+   (project → Settings → Environment Variables).
+4. Deployments → ⋯ → **Redeploy**. Then ask one question per backend on the live site.

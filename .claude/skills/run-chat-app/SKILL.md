@@ -9,8 +9,10 @@ description: >-
 
 # Run chat-app
 
-This is a Next.js 16 app (`npm run dev`) with one API route,
-`app/api/chat/route.ts`, that calls the Gemini API. `GOOGLE_GENAI_API_KEY`
+This is a Next.js 16 app (`npm run dev`). Its main API route,
+`app/api/chat/route.ts`, calls the Gemini API; Document Q&A also needs the
+RAG backends on ports 8000-8002 (see README.md, "Running everything
+together"). `GOOGLE_GENAI_API_KEY`
 must be set in `.env.local` (see `.env.local.example`) or the API route
 returns a 500.
 
