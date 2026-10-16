@@ -22,6 +22,11 @@ import {
   Database,
   ShieldCheck,
   ShieldAlert,
+  PanelLeftClose,
+  Sparkles,
+  MessageSquare,
+  FileText,
+  ArrowUp,
 } from "lucide-react";
 import Link from "next/link";
 import ModelSettingsPanel, {
@@ -788,132 +793,78 @@ export default function Chat() {
     }
   };
 
-  const suggestedPrompts = [
-    "Explain quantum computing",
-    "Write a Python function",
-    "Plan a trip to Japan",
-    "Summarize a topic",
-  ];
+  const modelLabel =
+    AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
+  const backendLabel =
+    retrieval === "graph"
+      ? "LightRAG knowledge graph"
+      : (VECTOR_STORES.find((s) => s.id === vectorStore)?.label ?? vectorStore);
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-blue-100 via-blue-50 to-white">
-      {/* Sidebar */}
-      <div
-        className={`transition-all duration-300 flex flex-col bg-white border-r border-gray-200 ${
-          sidebarOpen ? "w-64" : "w-0"
-        } overflow-hidden`}
+    <div className="flex h-screen bg-slate-50 text-gray-900">
+      {/* Sidebar: conversations plus every chat/retrieval setting */}
+      <aside
+        className={`transition-all duration-300 flex-shrink-0 bg-slate-900 text-slate-200 overflow-hidden ${
+          sidebarOpen ? "w-72" : "w-0"
+        }`}
       >
-        <div className="p-4 border-b border-gray-200">
-          <button
-            onClick={startNewChat}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors font-medium"
-          >
-            <Plus size={18} />
-            New chat
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-3 space-y-2">
-            {conversations.map((conv) => (
-              <button
-                key={conv.id}
-                onClick={() => setCurrentConvId(conv.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg transition-colors text-sm ${
-                  currentConvId === conv.id
-                    ? "bg-gray-200 text-gray-900 font-medium"
-                    : "text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <MessageCircle size={16} />
-                  <span className="truncate">{conv.title}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-3 border-t border-gray-200 space-y-2">
-          {process.env.NODE_ENV === "development" && (
-            <Link
-              href="/dev/cache"
-              className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-600 text-sm transition-colors"
-            >
-              <Database size={18} />
-              Response cache
-            </Link>
-          )}
-          <button className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-600 text-sm transition-colors">
-            <HelpCircle size={18} />
-            Help & FAQ
-          </button>
-          <button className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-600 text-sm transition-colors">
-            <Settings size={18} />
-            Settings
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="border-b border-gray-200 bg-white bg-opacity-80 backdrop-blur-sm">
-          <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <Menu size={20} className="text-gray-700" />
-              </button>
-              <h1 className="text-2xl font-semibold text-gray-900 whitespace-nowrap">
-                My Gemini App
-              </h1>
-              <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm whitespace-nowrap">
-                <button
-                  onClick={() => setMode("chat")}
-                  className={`px-3 py-1.5 transition-colors ${
-                    mode === "chat"
-                      ? "bg-blue-600 text-white"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Chat
-                </button>
-                <button
-                  onClick={() => setMode("rag")}
-                  className={`px-3 py-1.5 transition-colors ${
-                    mode === "rag"
-                      ? "bg-blue-600 text-white"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Document Q&A
-                </button>
+        <div className="w-72 h-full flex flex-col">
+          <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                <Sparkles size={16} className="text-white" />
               </div>
-              <label
-                title="Check prompts with Prompt Guard and Llama Guard, and replies with Llama Guard"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm cursor-pointer select-none transition-colors ${
-                  guardrails
-                    ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
-                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={guardrails}
-                  onChange={(e) => setGuardrails(e.target.checked)}
-                  className="accent-green-600"
-                />
-                <ShieldCheck size={16} />
-                Guardrails
-              </label>
-              {mode === "chat" && (
+              <span className="font-semibold text-white tracking-tight">
+                My Gemini App
+              </span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              title="Hide sidebar"
+              className="p-1.5 rounded-md text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+          </div>
+
+          <div className="px-4 pb-4">
+            <button
+              onClick={startNewChat}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+            >
+              <Plus size={16} />
+              New chat
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-5">
+            <section>
+              <SidebarLabel>Mode</SidebarLabel>
+              <Segmented
+                value={mode}
+                onChange={setMode}
+                options={[
+                  {
+                    id: "chat",
+                    label: "Chat",
+                    icon: <MessageSquare size={14} />,
+                  },
+                  {
+                    id: "rag",
+                    label: "Document Q&A",
+                    icon: <FileText size={14} />,
+                  },
+                ]}
+              />
+            </section>
+
+            {mode === "chat" ? (
+              <section>
+                <SidebarLabel>Model</SidebarLabel>
                 <select
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className={sidebarSelectClass}
                 >
                   {AVAILABLE_MODELS.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -921,54 +872,32 @@ export default function Chat() {
                     </option>
                   ))}
                 </select>
-              )}
-              {mode === "rag" && (
-                <>
-                  <div
-                    role="group"
-                    aria-label="Retrieval"
-                    className="flex rounded-lg border border-gray-300 overflow-hidden text-sm whitespace-nowrap"
-                  >
-                    {(
-                      [
-                        ["vector", "Vector DB"],
-                        ["graph", "Knowledge graph"],
-                      ] as const
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        onClick={() => setRetrieval(id)}
-                        title={
-                          id === "vector"
-                            ? "Search chunks in a vector database (Pinecone or Qdrant)"
-                            : "Query the LightRAG knowledge graph (hybrid: entities + relationships)"
-                        }
-                        className={`px-3 py-1.5 transition-colors ${
-                          retrieval === id
-                            ? "bg-gray-800 text-white"
-                            : "bg-white text-gray-700 hover:bg-gray-50"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {retrieval === "graph" ? (
-                    <span
-                      title="LightRAG hybrid mode: local (entities and their neighbours) + global (relationships and themes)"
-                      className="px-3 py-1.5 rounded-lg border border-gray-300 bg-gray-50 text-sm text-gray-700 whitespace-nowrap"
-                    >
-                      LightRAG · hybrid
-                    </span>
-                  ) : (
-                    <>
+              </section>
+            ) : (
+              <>
+                <section>
+                  <SidebarLabel>Retrieval</SidebarLabel>
+                  <Segmented
+                    value={retrieval}
+                    onChange={setRetrieval}
+                    options={[
+                      { id: "vector", label: "Vector DB" },
+                      { id: "graph", label: "Knowledge graph" },
+                    ]}
+                  />
+                </section>
+
+                {retrieval === "vector" ? (
+                  <>
+                    <section>
+                      <SidebarLabel>Vector store</SidebarLabel>
                       <select
                         value={vectorStore}
                         onChange={(e) =>
                           setVectorStore(e.target.value as VectorStore)
                         }
                         title="Vector store used for uploads and questions"
-                        className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className={sidebarSelectClass}
                       >
                         {VECTOR_STORES.map((s) => (
                           <option key={s.id} value={s.id}>
@@ -976,20 +905,23 @@ export default function Chat() {
                           </option>
                         ))}
                       </select>
-                      <label
-                        title="Retrieve extra candidate chunks and reorder them with a reranker model before answering"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 cursor-pointer select-none hover:bg-gray-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={rerank}
-                          onChange={(e) => setRerank(e.target.checked)}
-                          className="accent-blue-600"
-                        />
-                        Rerank
-                      </label>
-                    </>
-                  )}
+                    </section>
+                    <SwitchRow
+                      label="Rerank results"
+                      hint="Retrieve extra chunks and reorder them with a reranker"
+                      checked={rerank}
+                      onChange={setRerank}
+                    />
+                  </>
+                ) : (
+                  <p className="text-xs leading-relaxed text-slate-400">
+                    LightRAG in hybrid mode: entities and their neighbours plus
+                    relationships and themes.
+                  </p>
+                )}
+
+                <section>
+                  <SidebarLabel>Documents</SidebarLabel>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1000,12 +932,118 @@ export default function Chat() {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-600 text-sm text-slate-200 hover:bg-slate-800 hover:border-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    <CloudUpload size={16} />
-                    {uploading ? "Uploading..." : "Upload PDF"}
+                    {uploading ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <CloudUpload size={16} />
+                    )}
+                    {uploading
+                      ? "Uploading..."
+                      : `Upload PDF to ${backendLabel.split(" ")[0]}`}
                   </button>
-                </>
+                  {uploadStatus && (
+                    <p
+                      className={`mt-2 text-xs leading-relaxed ${
+                        uploadStatus.kind === "success"
+                          ? "text-emerald-400"
+                          : uploadStatus.kind === "progress"
+                            ? "text-slate-400"
+                            : "text-red-400"
+                      }`}
+                    >
+                      {uploadStatus.message}
+                    </p>
+                  )}
+                </section>
+              </>
+            )}
+
+            <SwitchRow
+              label="Guardrails"
+              hint="Check prompts with Prompt Guard and Llama Guard, and replies with Llama Guard"
+              icon={<ShieldCheck size={15} />}
+              checked={guardrails}
+              onChange={setGuardrails}
+            />
+
+            {conversations.length > 0 && (
+              <section className="pt-1">
+                <SidebarLabel>Recent</SidebarLabel>
+                <div className="space-y-0.5">
+                  {[...conversations].reverse().map((conv) => (
+                    <button
+                      key={conv.id}
+                      onClick={() => setCurrentConvId(conv.id)}
+                      className={`w-full text-left px-2.5 py-2 rounded-md text-sm flex items-center gap-2 transition-colors ${
+                        currentConvId === conv.id
+                          ? "bg-slate-800 text-white"
+                          : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+                      }`}
+                    >
+                      <MessageCircle size={14} className="flex-shrink-0" />
+                      <span className="truncate">{conv.title}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+
+          <div className="px-4 py-3 border-t border-slate-800 space-y-0.5">
+            {process.env.NODE_ENV === "development" && (
+              <Link href="/dev/cache" className={sidebarFooterClass}>
+                <Database size={16} />
+                Response cache
+              </Link>
+            )}
+            <button className={sidebarFooterClass}>
+              <HelpCircle size={16} />
+              Help & FAQ
+            </button>
+            <button className={sidebarFooterClass}>
+              <Settings size={16} />
+              Settings
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="h-14 flex-shrink-0 border-b border-gray-200 bg-white/80 backdrop-blur-sm">
+          <div className="h-full px-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {!sidebarOpen && (
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  title="Show sidebar"
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <Menu size={20} className="text-gray-700" />
+                </button>
+              )}
+              <h1 className="font-medium text-gray-900 truncate">
+                {currentConv?.title ?? "New chat"}
+              </h1>
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs text-gray-600 whitespace-nowrap">
+                {mode === "chat" ? (
+                  <MessageSquare size={12} />
+                ) : (
+                  <FileText size={12} />
+                )}
+                {mode === "chat" ? modelLabel : backendLabel}
+              </span>
+              {guardrails && (
+                <span
+                  title="Guardrails are on"
+                  className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-xs text-emerald-700 whitespace-nowrap"
+                >
+                  <ShieldCheck size={12} />
+                  Guarded
+                </span>
               )}
             </div>
             {mode === "chat" && !paramsOpen && (
@@ -1018,61 +1056,43 @@ export default function Chat() {
               </button>
             )}
           </div>
-          {mode === "rag" && uploadStatus && (
-            <div
-              className={`max-w-4xl mx-auto px-4 pb-3 text-sm ${
-                uploadStatus.kind === "success"
-                  ? "text-green-700"
-                  : uploadStatus.kind === "progress"
-                    ? "text-gray-600"
-                    : "text-red-600"
-              }`}
-            >
-              {uploadStatus.message}
-            </div>
-          )}
-        </div>
+        </header>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl mx-auto w-full px-4 py-8">
+          <div className="max-w-3xl mx-auto w-full px-4 py-8">
             {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
-                <h2 className="text-3xl font-semibold text-gray-900 mb-2">
-                  Hello there
-                </h2>
-                <p className="text-gray-600 mb-8">How can I help you today?</p>
-
-                <div className="grid grid-cols-2 gap-3 w-full max-w-2xl">
-                  {suggestedPrompts.map((prompt) => (
-                    <button
-                      key={prompt}
-                      onClick={() => setInput(prompt)}
-                      className="p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-left transition-colors"
-                    >
-                      <p className="text-gray-900 text-sm font-medium">
-                        {prompt}
-                      </p>
-                    </button>
-                  ))}
+              <div className="flex flex-col items-center justify-center text-center min-h-[55vh]">
+                <div className="w-14 h-14 mb-5 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                  {mode === "chat" ? (
+                    <Sparkles size={26} className="text-white" />
+                  ) : (
+                    <FileText size={26} className="text-white" />
+                  )}
                 </div>
+                <h2 className="text-3xl font-semibold tracking-tight text-gray-900 mb-2">
+                  {mode === "chat"
+                    ? "How can I help you today?"
+                    : "Ask your documents"}
+                </h2>
+                <p className="text-gray-500 max-w-md">
+                  {mode === "chat"
+                    ? `Chatting with ${modelLabel}. Tune the model from the parameters panel.`
+                    : `Upload a PDF from the sidebar, then ask questions answered from ${backendLabel}.`}
+                </p>
               </div>
             )}
 
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`group flex gap-4 py-6 animate-in fade-in ${
+                className={`group flex gap-3 py-4 animate-in ${
                   msg.role === "user" ? "justify-end" : "justify-start"
                 }`}
               >
-                {msg.role === "assistant" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold text-lg">
-                    🤖
-                  </div>
-                )}
+                {msg.role === "assistant" && <AssistantAvatar />}
                 <div
-                  className={`max-w-2xl flex flex-col ${
+                  className={`max-w-[85%] flex flex-col ${
                     msg.role === "user" ? "items-end" : "items-start"
                   }`}
                 >
@@ -1083,7 +1103,7 @@ export default function Chat() {
                         onChange={(e) => setEditValue(e.target.value)}
                         rows={3}
                         autoFocus
-                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full p-3 border border-gray-300 rounded-xl bg-white text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                       <div className="flex gap-2 mt-2 justify-end">
                         <button
@@ -1104,19 +1124,25 @@ export default function Chat() {
                   ) : (
                     <>
                       {msg.blocked ? (
-                        <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 leading-relaxed">
+                        <div className="flex items-start gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 leading-relaxed">
                           <ShieldAlert
                             size={18}
                             className="flex-shrink-0 mt-0.5"
                           />
                           <p className="whitespace-pre-wrap">{msg.content}</p>
                         </div>
-                      ) : (
+                      ) : msg.role === "user" ? (
                         <p
-                          className={`leading-relaxed whitespace-pre-wrap ${
-                            msg.excluded ? "text-gray-400" : "text-gray-900"
+                          className={`px-4 py-2.5 rounded-2xl rounded-br-md leading-relaxed whitespace-pre-wrap ${
+                            msg.excluded
+                              ? "bg-gray-200 text-gray-500"
+                              : "bg-blue-600 text-white"
                           }`}
                         >
+                          {msg.content}
+                        </p>
+                      ) : (
+                        <p className="pt-1 leading-relaxed whitespace-pre-wrap text-gray-900">
                           {msg.content}
                         </p>
                       )}
@@ -1125,13 +1151,13 @@ export default function Chat() {
                           Blocked, not sent to the model
                         </span>
                       )}
-                      <div className="flex items-center gap-1 mt-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         {msg.role === "user" ? (
                           <>
                             <button
                               onClick={() => handleCopy(idx, msg.content)}
                               title="Copy"
-                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                              className={actionButtonClass}
                             >
                               {copiedIndex === idx ? (
                                 <Check size={14} />
@@ -1142,7 +1168,7 @@ export default function Chat() {
                             <button
                               onClick={() => handleEditStart(idx, msg.content)}
                               title="Edit"
-                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                              className={actionButtonClass}
                             >
                               <Pencil size={14} />
                             </button>
@@ -1152,10 +1178,8 @@ export default function Chat() {
                             <button
                               onClick={() => handleFeedback(idx, "up")}
                               title="Good response"
-                              className={`p-1.5 rounded-md hover:bg-gray-200 transition-colors ${
-                                msg.feedback === "up"
-                                  ? "text-blue-600"
-                                  : "text-gray-500"
+                              className={`${actionButtonClass} ${
+                                msg.feedback === "up" ? "!text-blue-600" : ""
                               }`}
                             >
                               <ThumbsUp size={14} />
@@ -1163,10 +1187,8 @@ export default function Chat() {
                             <button
                               onClick={() => handleFeedback(idx, "down")}
                               title="Bad response"
-                              className={`p-1.5 rounded-md hover:bg-gray-200 transition-colors ${
-                                msg.feedback === "down"
-                                  ? "text-blue-600"
-                                  : "text-gray-500"
+                              className={`${actionButtonClass} ${
+                                msg.feedback === "down" ? "!text-blue-600" : ""
                               }`}
                             >
                               <ThumbsDown size={14} />
@@ -1179,10 +1201,8 @@ export default function Chat() {
                                   ? "Stop reading"
                                   : "Read aloud"
                               }
-                              className={`p-1.5 rounded-md hover:bg-gray-200 disabled:cursor-wait transition-colors ${
-                                speakingIndex === idx
-                                  ? "text-blue-600"
-                                  : "text-gray-500"
+                              className={`${actionButtonClass} disabled:cursor-wait ${
+                                speakingIndex === idx ? "!text-blue-600" : ""
                               }`}
                             >
                               {ttsLoadingIndex === idx ? (
@@ -1197,14 +1217,14 @@ export default function Chat() {
                               onClick={() => handleRegenerate(idx)}
                               disabled={loading}
                               title="Regenerate response"
-                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                              className={`${actionButtonClass} disabled:opacity-40 disabled:cursor-not-allowed`}
                             >
                               <RotateCw size={14} />
                             </button>
                             <button
                               onClick={() => handleCopy(idx, msg.content)}
                               title="Copy"
-                              className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                              className={actionButtonClass}
                             >
                               {copiedIndex === idx ? (
                                 <Check size={14} />
@@ -1226,29 +1246,20 @@ export default function Chat() {
                     </>
                   )}
                 </div>
-                {msg.role === "user" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-semibold text-lg">
-                    👤
-                  </div>
-                )}
               </div>
             ))}
 
             {loading && (
-              <div className="flex gap-4 py-6 animate-in fade-in">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold text-lg">
-                  🤖
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "0.1s" }}
-                  ></div>
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "0.2s" }}
-                  ></div>
+              <div className="flex gap-3 py-4 animate-in">
+                <AssistantAvatar />
+                <div className="flex items-center gap-1.5 pt-1">
+                  {[0, 0.15, 0.3].map((delay) => (
+                    <div
+                      key={delay}
+                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                      style={{ animationDelay: `${delay}s` }}
+                    />
+                  ))}
                 </div>
               </div>
             )}
@@ -1258,9 +1269,12 @@ export default function Chat() {
         </div>
 
         {/* Input */}
-        <div className="bg-white bg-opacity-80 backdrop-blur-sm border-t border-gray-200 py-4">
-          <div className="max-w-4xl mx-auto px-4">
-            <form onSubmit={handleSubmit} className="flex gap-3">
+        <div className="px-4 pb-4 pt-2">
+          <div className="max-w-3xl mx-auto">
+            <form
+              onSubmit={handleSubmit}
+              className="flex items-center gap-2 p-1.5 pl-5 rounded-full border border-gray-200 bg-white shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-shadow"
+            >
               <input
                 type="text"
                 value={input}
@@ -1271,41 +1285,48 @@ export default function Chat() {
                     : transcribing
                       ? "Transcribing..."
                       : mode === "rag"
-                        ? "Ask about the document"
+                        ? "Ask about your documents"
                         : "Message Gemini"
                 }
                 disabled={loading}
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500 disabled:bg-gray-50 disabled:cursor-not-allowed transition-all bg-white text-gray-900"
+                className="flex-1 min-w-0 py-2 bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none disabled:cursor-not-allowed"
               />
               <button
                 type="button"
                 onClick={recording ? stopRecording : startRecording}
                 disabled={transcribing || (loading && !recording)}
                 title={recording ? "Stop recording" : "Speak your message"}
-                className={`p-3 rounded-full border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`p-2.5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   recording
-                    ? "bg-red-600 border-red-600 text-white animate-pulse"
-                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                    ? "bg-red-600 text-white animate-pulse"
+                    : "text-gray-500 hover:bg-gray-100"
                 }`}
               >
                 {transcribing ? (
-                  <Loader2 size={20} className="animate-spin" />
+                  <Loader2 size={18} className="animate-spin" />
                 ) : recording ? (
-                  <Square size={20} />
+                  <Square size={18} />
                 ) : (
-                  <Mic size={20} />
+                  <Mic size={18} />
                 )}
               </button>
               <button
                 type="submit"
                 disabled={loading || recording || transcribing || !input.trim()}
-                className="px-6 py-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium"
+                title="Send"
+                className="p-2.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
               >
-                Send
+                <ArrowUp size={18} />
               </button>
             </form>
-            {voiceError && (
-              <p className="mt-2 px-4 text-sm text-red-600">{voiceError}</p>
+            {voiceError ? (
+              <p className="mt-2 text-center text-xs text-red-600">
+                {voiceError}
+              </p>
+            ) : (
+              <p className="mt-2 text-center text-xs text-gray-400">
+                AI responses can be inaccurate. Verify important information.
+              </p>
             )}
           </div>
         </div>
@@ -1318,6 +1339,99 @@ export default function Chat() {
           onClose={() => setParamsOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+const sidebarSelectClass =
+  "w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
+
+const sidebarFooterClass =
+  "w-full text-left flex items-center gap-3 px-2.5 py-2 rounded-md text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors";
+
+const actionButtonClass =
+  "p-1.5 rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors";
+
+function SidebarLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+      {children}
+    </h3>
+  );
+}
+
+function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+  options: { id: T; label: string; icon?: React.ReactNode }[];
+}) {
+  return (
+    <div className="flex p-1 rounded-lg bg-slate-800">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+            value === o.id
+              ? "bg-slate-600 text-white shadow-sm"
+              : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          {o.icon}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SwitchRow({
+  label,
+  hint,
+  icon,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  icon?: React.ReactNode;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div title={hint} className="flex items-center justify-between gap-3">
+      <span className="flex items-center gap-2 text-sm text-slate-200">
+        {icon}
+        {label}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+          checked ? "bg-emerald-500" : "bg-slate-700"
+        }`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-[18px]" : "translate-x-[3px]"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+function AssistantAvatar() {
+  return (
+    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+      <Sparkles size={15} className="text-white" />
     </div>
   );
 }
